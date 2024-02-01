@@ -641,6 +641,8 @@ fn setup_rules(mut wfc: ResMut<Wfc>) {
     wfc.weights.add_weight(C::Dirt, C::Dirt, 0.1);
     wfc.weights.add_weight(C::Grass, C::Rock, 0.05);
     wfc.weights.add_weight(C::Rock, C::Rock, 3.);
+    wfc.weights.add_weight(C::Water, C::Water, 8.);
+    wfc.weights.add_weight(C::Water, C::Grass, 2.);
 }
 
 fn reset(
