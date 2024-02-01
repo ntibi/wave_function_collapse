@@ -358,6 +358,9 @@ struct Stepping {
     remainder: f32,
 }
 
+#[derive(Resource)]
+struct ForceReload(Option<UVec2>);
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -369,7 +372,7 @@ fn main() {
         }))
         .add_systems(Startup, (setup_camera, setup_rules, pause_time))
         .add_systems(Update, (step_wfc, update_wfc_tiles, debug_grid).chain())
-        .add_systems(Update, (update_zoom, update_stepping, reset))
+        .add_systems(Update, (update_zoom, update_stepping, reset, update_mouse))
         .add_systems(
             PreUpdate,
             update_pause.run_if(input_just_pressed(KeyCode::Space)),
@@ -378,6 +381,7 @@ fn main() {
             steps_per_second: 10.,
             remainder: 0.,
         })
+        .insert_resource(ForceReload(Some(UVec2::new(0, 0))))
         .insert_resource(Wfc::new(32, 32))
         .run();
 }
@@ -431,6 +435,7 @@ fn update_wfc_tiles(
     mut wfc: ResMut<Wfc>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    force_reload: Res<ForceReload>,
 ) {
     let mut entity_indices_to_flush: Vec<usize> = Vec::new();
     let mut entity_indices_to_update: Vec<(usize, Entity)> = Vec::new();
@@ -441,7 +446,7 @@ fn update_wfc_tiles(
         if let Some(entity) = wfc.entities[i] {
             let states = wfc.children[i].len();
 
-            if states != tile.bits().count_ones() as usize {
+            if Some(coords) == force_reload.0 || states != tile.bits().count_ones() as usize {
                 commands.entity(entity).despawn_recursive();
                 entity_indices_to_flush.push(i);
                 spawn = true;
@@ -654,4 +659,40 @@ fn reset(
 
 fn pause_time(mut time: ResMut<Time<Virtual>>) {
     time.pause();
+}
+
+fn update_mouse(
+    camera_query: Query<(&Camera, &GlobalTransform)>,
+    window_query: Query<&Window>,
+    buttons: Res<Input<MouseButton>>,
+    mut wfc: ResMut<Wfc>,
+    mut force_reload: ResMut<ForceReload>,
+) {
+    let (camera, camera_transform) = camera_query.single();
+
+    force_reload.0 = None;
+
+    if let Some(cursor_position) = window_query.single().cursor_position() {
+        if let Some(point) = camera.viewport_to_world_2d(camera_transform, cursor_position) {
+            let coords = UVec2::new(
+                (point.x / TILESIZE).floor() as u32,
+                (point.y / TILESIZE).floor() as u32,
+            );
+            let mut v = wfc.get(coords).bits();
+            let mut c = 0;
+            while v > 1 {
+                v >>= 1;
+                c += 1;
+            }
+            let v = 1 << c;
+            if buttons.just_pressed(MouseButton::Left) {
+                wfc.set(coords, TileContent::from_bits_truncate(v << 1));
+                force_reload.0 = Some(coords);
+            }
+            if buttons.just_pressed(MouseButton::Right) {
+                wfc.set(coords, TileContent::from_bits_truncate(v >> 1));
+                force_reload.0 = Some(coords);
+            }
+        };
+    };
 }
