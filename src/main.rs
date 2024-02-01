@@ -1,10 +1,5 @@
 use rand::{rngs, seq::SliceRandom, thread_rng, Rng, SeedableRng};
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    io::{self, BufRead, Stdin},
-    ops::Index,
-    thread, time,
-};
+use std::collections::{HashMap, VecDeque};
 
 use bevy::{
     input::common_conditions::input_just_pressed, prelude::*, render::camera::ScalingMode,
@@ -127,6 +122,7 @@ impl Weights {
         }
     }
 
+    #[allow(dead_code)]
     fn add_weight(&mut self, tile1: TileContent, tile2: TileContent, weight: f32) {
         assert!(tile1.bits().count_ones() == 1);
         assert!(tile2.bits().count_ones() == 1);
@@ -257,7 +253,7 @@ impl Wfc {
             .choose_weighted(&mut self.rng, |&state| {
                 let v = collapsed_neighbors
                     .iter()
-                    .map(|&(neighbor, dir)| self.weights.get_weight(state, neighbor))
+                    .map(|&(neighbor, _dir)| self.weights.get_weight(state, neighbor))
                     .sum::<f32>();
                 if v > 0. {
                     v
@@ -381,7 +377,7 @@ fn main() {
             steps_per_second: 10.,
             remainder: 0.,
         })
-        .insert_resource(Wfc::new(128, 128))
+        .insert_resource(Wfc::new(32, 32))
         .run();
 }
 
@@ -514,7 +510,7 @@ fn update_wfc_tiles(
 }
 
 fn debug_grid(wfc: Res<Wfc>, mut gizmos: Gizmos) {
-    for (coords, tile) in wfc.iter() {
+    for (coords, _tile) in wfc.iter() {
         gizmos.rect_2d(
             coords.as_vec2() * TILESIZE + TILESIZE / 2.,
             0.,
