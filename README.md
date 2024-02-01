@@ -14,3 +14,5 @@ visual wave function collapse algorithm implementation on a tile map using rust 
 `-` `+`: zoom out/in
 
 `r`: reset the map
+
+`lclick` `rclick`: change tile value
