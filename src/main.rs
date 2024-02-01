@@ -24,6 +24,7 @@ bitflags::bitflags! {
 
         // TODO cleaner way to set this ?
         const ALL = (1 << 4) - 1;
+        const MAX = 1 << 3;
         const NONE = 0;
     }
 }
@@ -621,19 +622,22 @@ fn update_mouse(
                 (point.x / TILESIZE).floor() as u32,
                 (point.y / TILESIZE).floor() as u32,
             );
-            let mut v = wfc.get(coords).bits();
-            let mut c = 0;
-            while v > 1 {
-                v >>= 1;
-                c += 1;
-            }
-            let v = 1 << c;
+            let v = wfc.get(coords);
+
+            let (left, right) = if v.bits().count_ones() == 1 {
+                (
+                    v.bits().checked_shl(1).unwrap_or(1),
+                    v.bits().checked_shr(1).unwrap_or(TileContent::MAX.bits()),
+                )
+            } else {
+                (1, TileContent::MAX.bits())
+            };
             if buttons.just_pressed(MouseButton::Left) {
-                wfc.set(coords, TileContent::from_bits_truncate(v << 1));
+                wfc.set(coords, TileContent::from_bits_truncate(left));
                 force_reload.0 = Some(coords);
             }
             if buttons.just_pressed(MouseButton::Right) {
-                wfc.set(coords, TileContent::from_bits_truncate(v >> 1));
+                wfc.set(coords, TileContent::from_bits_truncate(right));
                 force_reload.0 = Some(coords);
             }
         };
@@ -644,14 +648,10 @@ fn setup_rules(mut wfc: ResMut<Wfc>) {
     type C = TileContent;
     type D = Direction;
 
-    wfc.rules
-        .add_rule(C::Grass, D::Left, C::Grass | C::Dirt | C::Rock);
-    wfc.rules
-        .add_rule(C::Grass, D::Right, C::Grass | C::Dirt | C::Rock);
-    wfc.rules
-        .add_rule(C::Grass, D::Up, C::Grass | C::Dirt | C::Rock);
-    wfc.rules
-        .add_rule(C::Grass, D::Down, C::Grass | C::Dirt | C::Rock);
+    wfc.rules.add_rule(C::Grass, D::Left, C::Grass | C::Dirt);
+    wfc.rules.add_rule(C::Grass, D::Right, C::Grass | C::Dirt);
+    wfc.rules.add_rule(C::Grass, D::Up, C::Grass | C::Dirt);
+    wfc.rules.add_rule(C::Grass, D::Down, C::Grass | C::Dirt);
 
     wfc.rules.add_rule(C::Water, D::Left, C::Water | C::Grass);
     wfc.rules.add_rule(C::Water, D::Right, C::Water | C::Grass);
@@ -667,19 +667,14 @@ fn setup_rules(mut wfc: ResMut<Wfc>) {
     wfc.rules
         .add_rule(C::Dirt, D::Down, C::Grass | C::Rock | C::Dirt);
 
-    wfc.rules
-        .add_rule(C::Rock, D::Left, C::Rock | C::Dirt | C::Grass);
-    wfc.rules
-        .add_rule(C::Rock, D::Right, C::Rock | C::Dirt | C::Grass);
-    wfc.rules
-        .add_rule(C::Rock, D::Up, C::Rock | C::Dirt | C::Grass);
-    wfc.rules
-        .add_rule(C::Rock, D::Down, C::Rock | C::Dirt | C::Grass);
+    wfc.rules.add_rule(C::Rock, D::Left, C::Rock | C::Dirt);
+    wfc.rules.add_rule(C::Rock, D::Right, C::Rock | C::Dirt);
+    wfc.rules.add_rule(C::Rock, D::Up, C::Rock | C::Dirt);
+    wfc.rules.add_rule(C::Rock, D::Down, C::Rock | C::Dirt);
 
     wfc.weights.add_weight(C::Grass, C::Grass, 5.);
     wfc.weights.add_weight(C::Grass, C::Dirt, 2.);
     wfc.weights.add_weight(C::Dirt, C::Dirt, 0.1);
-    wfc.weights.add_weight(C::Grass, C::Rock, 0.05);
     wfc.weights.add_weight(C::Rock, C::Rock, 3.);
     wfc.weights.add_weight(C::Water, C::Water, 8.);
     wfc.weights.add_weight(C::Water, C::Grass, 2.);
