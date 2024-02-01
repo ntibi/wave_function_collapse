@@ -622,20 +622,6 @@ fn setup_rules(mut wfc: ResMut<Wfc>) {
     wfc.rules
         .add_rule(C::Rock, D::Down, C::Rock | C::Dirt | C::Grass);
 
-    //wfc.rules.add_rule(C::Floor, D::Left, C::Wall | C::Floor);
-    //wfc.rules.add_rule(C::Floor, D::Right, C::Wall | C::Floor);
-    //wfc.rules.add_rule(C::Floor, D::Up, C::Wall | C::Floor);
-    //wfc.rules.add_rule(C::Floor, D::Down, C::Wall | C::Floor);
-
-    //wfc.rules
-    //.add_rule(C::Wall, D::Left, C::Wall | C::Grass | C::Floor);
-    //wfc.rules
-    //.add_rule(C::Wall, D::Right, C::Wall | C::Grass | C::Floor);
-    //wfc.rules
-    //.add_rule(C::Wall, D::Up, C::Wall | C::Grass | C::Floor);
-    //wfc.rules
-    //.add_rule(C::Wall, D::Down, C::Wall | C::Grass | C::Floor);
-
     wfc.weights.add_weight(C::Grass, C::Grass, 5.);
     wfc.weights.add_weight(C::Grass, C::Dirt, 2.);
     wfc.weights.add_weight(C::Dirt, C::Dirt, 0.1);
