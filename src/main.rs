@@ -586,51 +586,6 @@ fn update_stepping(mut stepping: ResMut<Stepping>, keyboard_input: Res<Input<Key
     }
 }
 
-fn setup_rules(mut wfc: ResMut<Wfc>) {
-    type C = TileContent;
-    type D = Direction;
-
-    wfc.rules
-        .add_rule(C::Grass, D::Left, C::Grass | C::Dirt | C::Rock);
-    wfc.rules
-        .add_rule(C::Grass, D::Right, C::Grass | C::Dirt | C::Rock);
-    wfc.rules
-        .add_rule(C::Grass, D::Up, C::Grass | C::Dirt | C::Rock);
-    wfc.rules
-        .add_rule(C::Grass, D::Down, C::Grass | C::Dirt | C::Rock);
-
-    wfc.rules.add_rule(C::Water, D::Left, C::Water | C::Grass);
-    wfc.rules.add_rule(C::Water, D::Right, C::Water | C::Grass);
-    wfc.rules.add_rule(C::Water, D::Up, C::Water | C::Grass);
-    wfc.rules.add_rule(C::Water, D::Down, C::Water | C::Grass);
-
-    wfc.rules
-        .add_rule(C::Dirt, D::Left, C::Grass | C::Rock | C::Dirt);
-    wfc.rules
-        .add_rule(C::Dirt, D::Right, C::Grass | C::Rock | C::Dirt);
-    wfc.rules
-        .add_rule(C::Dirt, D::Up, C::Grass | C::Rock | C::Dirt);
-    wfc.rules
-        .add_rule(C::Dirt, D::Down, C::Grass | C::Rock | C::Dirt);
-
-    wfc.rules
-        .add_rule(C::Rock, D::Left, C::Rock | C::Dirt | C::Grass);
-    wfc.rules
-        .add_rule(C::Rock, D::Right, C::Rock | C::Dirt | C::Grass);
-    wfc.rules
-        .add_rule(C::Rock, D::Up, C::Rock | C::Dirt | C::Grass);
-    wfc.rules
-        .add_rule(C::Rock, D::Down, C::Rock | C::Dirt | C::Grass);
-
-    wfc.weights.add_weight(C::Grass, C::Grass, 5.);
-    wfc.weights.add_weight(C::Grass, C::Dirt, 2.);
-    wfc.weights.add_weight(C::Dirt, C::Dirt, 0.1);
-    wfc.weights.add_weight(C::Grass, C::Rock, 0.05);
-    wfc.weights.add_weight(C::Rock, C::Rock, 3.);
-    wfc.weights.add_weight(C::Water, C::Water, 8.);
-    wfc.weights.add_weight(C::Water, C::Grass, 2.);
-}
-
 fn reset(
     mut wfc: ResMut<Wfc>,
     keyboard_input: Res<Input<KeyCode>>,
@@ -683,4 +638,49 @@ fn update_mouse(
             }
         };
     };
+}
+
+fn setup_rules(mut wfc: ResMut<Wfc>) {
+    type C = TileContent;
+    type D = Direction;
+
+    wfc.rules
+        .add_rule(C::Grass, D::Left, C::Grass | C::Dirt | C::Rock);
+    wfc.rules
+        .add_rule(C::Grass, D::Right, C::Grass | C::Dirt | C::Rock);
+    wfc.rules
+        .add_rule(C::Grass, D::Up, C::Grass | C::Dirt | C::Rock);
+    wfc.rules
+        .add_rule(C::Grass, D::Down, C::Grass | C::Dirt | C::Rock);
+
+    wfc.rules.add_rule(C::Water, D::Left, C::Water | C::Grass);
+    wfc.rules.add_rule(C::Water, D::Right, C::Water | C::Grass);
+    wfc.rules.add_rule(C::Water, D::Up, C::Water | C::Grass);
+    wfc.rules.add_rule(C::Water, D::Down, C::Water | C::Grass);
+
+    wfc.rules
+        .add_rule(C::Dirt, D::Left, C::Grass | C::Rock | C::Dirt);
+    wfc.rules
+        .add_rule(C::Dirt, D::Right, C::Grass | C::Rock | C::Dirt);
+    wfc.rules
+        .add_rule(C::Dirt, D::Up, C::Grass | C::Rock | C::Dirt);
+    wfc.rules
+        .add_rule(C::Dirt, D::Down, C::Grass | C::Rock | C::Dirt);
+
+    wfc.rules
+        .add_rule(C::Rock, D::Left, C::Rock | C::Dirt | C::Grass);
+    wfc.rules
+        .add_rule(C::Rock, D::Right, C::Rock | C::Dirt | C::Grass);
+    wfc.rules
+        .add_rule(C::Rock, D::Up, C::Rock | C::Dirt | C::Grass);
+    wfc.rules
+        .add_rule(C::Rock, D::Down, C::Rock | C::Dirt | C::Grass);
+
+    wfc.weights.add_weight(C::Grass, C::Grass, 5.);
+    wfc.weights.add_weight(C::Grass, C::Dirt, 2.);
+    wfc.weights.add_weight(C::Dirt, C::Dirt, 0.1);
+    wfc.weights.add_weight(C::Grass, C::Rock, 0.05);
+    wfc.weights.add_weight(C::Rock, C::Rock, 3.);
+    wfc.weights.add_weight(C::Water, C::Water, 8.);
+    wfc.weights.add_weight(C::Water, C::Grass, 2.);
 }
