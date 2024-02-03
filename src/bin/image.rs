@@ -249,8 +249,8 @@ impl Wfc {
                 for (i, byte) in bytes.iter().enumerate() {
                     for j in 0..self.bpp {
                         mean_per_byte[j] = (mean_per_byte[j] as i32
-                            + (byte[1 + j] as i32 - mean_per_byte[j] as i32) / (i as i32 + 1))
-                            as u8;
+                            + (byte[(4 - self.bpp) + j] as i32 - mean_per_byte[j] as i32)
+                                / (i as i32 + 1)) as u8;
                     }
                 }
                 mean_per_byte
