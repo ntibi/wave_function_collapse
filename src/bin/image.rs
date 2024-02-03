@@ -270,6 +270,17 @@ impl WfcInput {
                     observed += 1;
                 }
                 data[x + y * width] = allowed_states;
+                // TODO same, maybe we can just push the range 1 neighbours ?
+                for (xx, yy) in Iter2D::new(self.range) {
+                    if (x + xx).checked_sub(self.range).is_some()
+                        && (y + yy).checked_sub(self.range).is_some()
+                        && x + xx < width
+                        && y + yy < height
+                    {
+                        let i = (x + xx - self.range) + (y + yy - self.range) * width;
+                        propagation.push_back(i);
+                    }
+                }
             } else {
                 if let Some(lowest_entropy) = data
                     .iter()
@@ -357,7 +368,7 @@ fn main() {
     let buffer: Vec<u8> = data
         .iter()
         .flat_map(|v| {
-            v.to_le_bytes()
+            v.to_be_bytes()
                 .iter()
                 .cloned()
                 .take(bytes_per_pixel)
