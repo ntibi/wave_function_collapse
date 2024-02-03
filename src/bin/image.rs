@@ -34,13 +34,13 @@ impl WfcInput {
             rules: HashMap::new(),
         };
 
-        b.parse_data(img.to_bytes());
+        b.parse_data(&img.as_bytes().to_vec());
         b.infer_rules();
 
         b
     }
 
-    fn parse_data(&mut self, data: Vec<u8>) {
+    fn parse_data(&mut self, data: &Vec<u8>) {
         let mut states: HashSet<u32> = HashSet::new();
 
         self.data = Vec::new();
@@ -72,7 +72,7 @@ impl WfcInput {
         let mut rules: HashMap<u32, Vec<Vec<u32>>> = HashMap::with_capacity(self.states.len());
 
         // width (and height) of the directions grid
-        let dirs_width = (self.range * 2 + 1);
+        let dirs_width = self.range * 2 + 1;
         self.states.iter().for_each(|&state| {
             rules.insert(state, vec![Vec::new(); dirs_width.pow(2)]);
         });
