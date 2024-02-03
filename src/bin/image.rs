@@ -288,6 +288,26 @@ impl Wfc {
         neighbours
     }
 
+    fn get_weighted_possible_states(&self, x: usize, y: usize) -> Vec<(u32, f32)> {
+        let states = self.data[x + y * self.width].clone();
+        let mut weighted_states = Vec::new();
+        for state in states {
+            let mut weight = 1.;
+            for (neighbor_states, _, dir) in self.get_neighbours(x, y, self.range) {
+                if neighbor_states.len() == 1 {
+                    if let Some(w) = self.rules[&neighbor_states[0]][dir].get(&state) {
+                        weight += w;
+                    } else {
+                        weight = 0.;
+                        break;
+                    }
+                }
+            }
+            weighted_states.push((state, weight));
+        }
+        weighted_states
+    }
+
     fn gen(&mut self, width: usize, height: usize, seed: Option<u64>) -> Vec<u32> {
         self.width = width;
         self.height = height;
@@ -373,21 +393,14 @@ impl Wfc {
                     let i = *lowest_entropy_indices.choose(&mut rng).unwrap();
                     let x = i % width;
                     let y = i / width;
-                    self.data[i] = vec![*self.data[i]
-                        .choose_weighted(&mut rng, |state| {
-                            self.get_neighbours(x, y, self.range)
-                                .iter()
-                                .map(|(neighbor_states, _, dir)| {
-                                    if neighbor_states.len() == 1 {
-                                        return *self.rules[&neighbor_states[0]][*dir]
-                                            .get(state)
-                                            .unwrap_or(&0.);
-                                    }
-                                    1.
-                                })
-                                .sum::<f32>()
-                        })
-                        .unwrap()];
+                    let weighted_states = self.get_weighted_possible_states(x, y);
+                    if let Ok(state) =
+                        weighted_states.choose_weighted(&mut rng, |(_, weight)| *weight)
+                    {
+                        self.data[i] = vec![state.0];
+                    } else {
+                        self.data[i] = vec![];
+                    }
                     observed += 1;
                     for (_, index, _) in self.get_neighbours(x, y, self.range) {
                         propagation.push_back(index);
@@ -413,7 +426,7 @@ fn main() {
 
     let mut wfc = Wfc::from_image(1, &img);
     //wfc.debug_rules();
-    let (w, h) = (128 as u32, 128 as u32);
+    let (w, h) = (32 as u32, 32 as u32);
     let start = std::time::Instant::now();
     let data = wfc.gen(w as usize, h as usize, None);
     println!("generated in {:?}", start.elapsed());
