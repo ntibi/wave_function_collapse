@@ -75,6 +75,9 @@ struct Wfc {
     /// the data we work on
     data: Vec<Vec<u32>>,
 
+    /// used to count intermediate images
+    img_count: usize,
+
     /// how many pixels to look around to infer rules
     range: usize,
     /// the list of allowed states
@@ -104,6 +107,7 @@ impl Wfc {
             rules: HashMap::new(),
             format: img.color(),
             bpp: 0,
+            img_count: 0,
         };
 
         wfc.parse_data(&img.as_bytes().to_vec(), width as usize, height as usize);
@@ -235,32 +239,40 @@ impl Wfc {
         }
     }
 
-    fn write_intermediary_image(&self, i: usize) {
+    fn write_intermediary_image(&mut self) {
         let buffer = &self
             .data
             .iter()
             .flat_map(|s| {
-                s.iter()
-                    .enumerate()
-                    .fold(0 as u32, |acc, (i, v)| {
-                        acc + (v - acc) / (i as u32 + 1) as u32
-                    })
-                    .to_be_bytes()
-                    .iter()
-                    .cloned()
-                    .take(self.bpp)
-                    .collect::<Vec<u8>>()
+                let bytes = s.iter().map(|v| v.to_be_bytes()).collect::<Vec<[u8; 4]>>();
+                let mut mean_per_byte = vec![0; 4];
+                for (i, byte) in bytes.iter().enumerate() {
+                    mean_per_byte[0] = (mean_per_byte[0] as i32
+                        + (byte[0] as i32 - mean_per_byte[0] as i32) / (i as i32 + 1))
+                        as u8;
+                    mean_per_byte[1] = (mean_per_byte[1] as i32
+                        + (byte[1] as i32 - mean_per_byte[1] as i32) / (i as i32 + 1))
+                        as u8;
+                    mean_per_byte[2] = (mean_per_byte[2] as i32
+                        + (byte[2] as i32 - mean_per_byte[2] as i32) / (i as i32 + 1))
+                        as u8;
+                    mean_per_byte[3] = (mean_per_byte[3] as i32
+                        + (byte[3] as i32 - mean_per_byte[3] as i32) / (i as i32 + 1))
+                        as u8;
+                }
+                mean_per_byte
             })
             .collect::<Vec<u8>>();
         // ffmpeg -f image2 -framerate 60 -i './out/img_%05d.bmp' video.mp4
         image::save_buffer(
-            format!("out/img_{:05}.bmp", i).as_str(),
+            format!("out/img_{:05}.bmp", self.img_count).as_str(),
             buffer,
             self.width as u32,
             self.height as u32,
             self.format,
         )
-        .unwrap()
+        .unwrap();
+        self.img_count += 1;
     }
 
     //                                                                   states    idx    dir (from neighbor's pov)
@@ -340,7 +352,7 @@ impl Wfc {
                     }
                 }
             } else {
-                self.write_intermediary_image(observed);
+                self.write_intermediary_image();
                 if let Some(lowest_entropy) = self
                     .data
                     .iter()
