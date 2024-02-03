@@ -106,9 +106,15 @@ impl WfcInput {
         self.data = Vec::new();
         self.data.resize((self.width * self.height) as usize, 0);
 
+        let bytes_per_pixel = match self.format {
+            ColorType::Rgb8 => 3,
+            ColorType::Rgba8 => 4,
+            _ => panic!("unsupported format {:?}", self.format),
+        };
+
         for y in 0..self.height {
             for x in 0..self.width {
-                let idx = ((y * self.width + x) * 3) as usize;
+                let idx = ((y * self.width + x) * bytes_per_pixel) as usize;
                 let r = data[idx];
                 let g = data[idx + 1];
                 let b = data[idx + 2];
