@@ -66,6 +66,8 @@ struct Wfc {
     height: usize,
     /// input image format
     format: image::ColorType,
+    /// bytes per pixel
+    bpp: usize,
 
     /// input data
     sampled_data: Vec<u32>,
@@ -101,6 +103,7 @@ impl Wfc {
             range,
             rules: HashMap::new(),
             format: img.color(),
+            bpp: 0,
         };
 
         wfc.parse_data(&img.as_bytes().to_vec(), width as usize, height as usize);
@@ -115,7 +118,7 @@ impl Wfc {
         self.sampled_data = Vec::new();
         self.sampled_data.resize((width * height) as usize, 0);
 
-        let bytes_per_pixel = match self.format {
+        self.bpp = match self.format {
             ColorType::Rgb8 => 3,
             ColorType::Rgba8 => 4,
             _ => panic!("unsupported format {:?}", self.format),
@@ -123,7 +126,7 @@ impl Wfc {
 
         for y in 0..height {
             for x in 0..width {
-                let idx = ((y * width + x) * bytes_per_pixel) as usize;
+                let idx = ((y * width + x) * self.bpp) as usize;
                 let r = data[idx];
                 let g = data[idx + 1];
                 let b = data[idx + 2];
@@ -232,6 +235,34 @@ impl Wfc {
         }
     }
 
+    fn write_intermediary_image(&self, i: usize) {
+        let buffer = &self
+            .data
+            .iter()
+            .flat_map(|s| {
+                s.iter()
+                    .enumerate()
+                    .fold(0 as u32, |acc, (i, v)| {
+                        acc + (v - acc) / (i as u32 + 1) as u32
+                    })
+                    .to_be_bytes()
+                    .iter()
+                    .cloned()
+                    .take(self.bpp)
+                    .collect::<Vec<u8>>()
+            })
+            .collect::<Vec<u8>>();
+        // ffmpeg -f image2 -framerate 60 -i './out/img_%05d.bmp' video.mp4
+        image::save_buffer(
+            format!("out/img_{:05}.bmp", i).as_str(),
+            buffer,
+            self.width as u32,
+            self.height as u32,
+            self.format,
+        )
+        .unwrap()
+    }
+
     //                                                                   states    idx    dir (from neighbor's pov)
     fn get_neighbours(&self, x: usize, y: usize, range: usize) -> Vec<(&Vec<u32>, usize, usize)> {
         let mut neighbours = Vec::new();
@@ -309,6 +340,7 @@ impl Wfc {
                     }
                 }
             } else {
+                self.write_intermediary_image(observed);
                 if let Some(lowest_entropy) = self
                     .data
                     .iter()
@@ -381,19 +413,13 @@ fn main() {
     let data = wfc.gen(w as usize, h as usize, None);
     println!("generated in {:?}", start.elapsed());
 
-    let bytes_per_pixel = match wfc.format {
-        ColorType::Rgb8 => 3,
-        ColorType::Rgba8 => 4,
-        _ => panic!("unsupported format {:?}", wfc.format),
-    };
-
     let buffer: Vec<u8> = data
         .iter()
         .flat_map(|v| {
             v.to_be_bytes()
                 .iter()
                 .cloned()
-                .take(bytes_per_pixel)
+                .take(wfc.bpp)
                 .collect::<Vec<_>>()
         })
         .collect();
