@@ -358,5 +358,5 @@ fn main() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    image::save_buffer(filename, &buffer, w, h, wfc.format).unwrap()
+    image::save_buffer("out.bmp", &buffer, w, h, wfc.format).unwrap()
 }
