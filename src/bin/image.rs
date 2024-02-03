@@ -59,13 +59,19 @@ impl Iterator for Iter2D {
     }
 }
 
-struct WfcInput {
+struct Wfc {
+    /// input image width
     width: usize,
+    /// input image height
     height: usize,
+    /// input image format
     format: image::ColorType,
 
     /// input data
-    data: Vec<u32>,
+    sampled_data: Vec<u32>,
+
+    /// the data we work on
+    data: Vec<Vec<u32>>,
 
     /// how many pixels to look around to infer rules
     range: usize,
@@ -77,34 +83,35 @@ struct WfcInput {
     rules: HashMap<u32, Vec<HashMap<u32, f32>>>,
 }
 
-impl WfcInput {
-    /// Create a new WfcInput from an image
+impl Wfc {
+    /// Create a new Wfc from an image
     /// * `range` - the range to look around to infer rules
     /// * `img` - the image to ingest
     fn from_image(range: usize, img: &image::DynamicImage) -> Self {
         let (width, height) = img.dimensions();
         println!("ingested {}x{} {:?}", width, height, img.color());
-        let mut b = Self {
-            width: width as usize,
-            height: height as usize,
+        let mut wfc = Self {
+            width: 0,
+            height: 0,
             data: Vec::new(),
+            sampled_data: Vec::new(),
             states: Vec::new(),
             range,
             rules: HashMap::new(),
             format: img.color(),
         };
 
-        b.parse_data(&img.as_bytes().to_vec());
-        b.infer_rules();
+        wfc.parse_data(&img.as_bytes().to_vec(), width as usize, height as usize);
+        wfc.infer_rules(width as usize, height as usize);
 
-        b
+        wfc
     }
 
-    fn parse_data(&mut self, data: &Vec<u8>) {
+    fn parse_data(&mut self, data: &Vec<u8>, width: usize, height: usize) {
         let mut states: HashSet<u32> = HashSet::new();
 
-        self.data = Vec::new();
-        self.data.resize((self.width * self.height) as usize, 0);
+        self.sampled_data = Vec::new();
+        self.sampled_data.resize((width * height) as usize, 0);
 
         let bytes_per_pixel = match self.format {
             ColorType::Rgb8 => 3,
@@ -112,9 +119,9 @@ impl WfcInput {
             _ => panic!("unsupported format {:?}", self.format),
         };
 
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let idx = ((y * self.width + x) * bytes_per_pixel) as usize;
+        for y in 0..height {
+            for x in 0..width {
+                let idx = ((y * width + x) * bytes_per_pixel) as usize;
                 let r = data[idx];
                 let g = data[idx + 1];
                 let b = data[idx + 2];
@@ -128,7 +135,7 @@ impl WfcInput {
                         panic!("unsupported format {:?}", self.format);
                     }
                 };
-                self.data[(y * self.width + x) as usize] = v;
+                self.sampled_data[(y * width + x) as usize] = v;
                 states.insert(v);
             }
         }
@@ -140,7 +147,7 @@ impl WfcInput {
         }
     }
 
-    fn infer_rules(&mut self) {
+    fn infer_rules(&mut self, width: usize, height: usize) {
         //                 state  direction states
         //                     \     |     /
         let mut rules: HashMap<u32, Vec<Vec<u32>>> = HashMap::with_capacity(self.states.len());
@@ -151,9 +158,9 @@ impl WfcInput {
             rules.insert(state, vec![Vec::new(); dirs_width.pow(2)]);
         });
 
-        for x in 0..self.width {
-            for y in 0..self.height {
-                let v = self.data[(y * self.width + x) as usize];
+        for x in 0..width {
+            for y in 0..height {
+                let v = self.sampled_data[(y * width + x) as usize];
                 for subrange_x in 0..dirs_width {
                     for subrange_y in 0..dirs_width {
                         // do not use the cell were working on for the rules
@@ -166,15 +173,15 @@ impl WfcInput {
                         if (y + subrange_y).checked_sub(self.range).is_none() {
                             continue;
                         }
-                        if x + subrange_x - self.range >= self.width {
+                        if x + subrange_x - self.range >= width {
                             continue;
                         }
-                        if y + subrange_y - self.range >= self.height {
+                        if y + subrange_y - self.range >= height {
                             continue;
                         }
 
-                        let v1 = self.data[((x + subrange_x - self.range)
-                            + (y + subrange_y - self.range) * self.width)
+                        let v1 = self.sampled_data[((x + subrange_x - self.range)
+                            + (y + subrange_y - self.range) * width)
                             as usize];
 
                         rules.get_mut(&v).unwrap()[subrange_y * dirs_width + subrange_x].push(v1);
@@ -206,12 +213,35 @@ impl WfcInput {
         }
     }
 
+    //                                                                   states    idx    dir (from neighbor's pov)
+    fn get_neighbours(&self, x: usize, y: usize, range: usize) -> Vec<(&Vec<u32>, usize, usize)> {
+        let mut neighbours = Vec::new();
+
+        for (xx, yy) in Iter2D::new(range) {
+            if (x + xx).checked_sub(range).is_some()
+                && (y + yy).checked_sub(range).is_some()
+                && x + xx < self.width
+                && y + yy < self.height
+            {
+                let i = ((x + xx - range) + (y + yy - range) * self.width) as usize;
+                let neighbor_states = &self.data[i];
+                let (rx, ry) = (2 * range - xx, 2 * range - yy);
+                neighbours.push((neighbor_states, i, ry * (self.range * 2 + 1) + rx));
+            }
+        }
+
+        neighbours
+    }
+
     fn gen(&mut self, width: usize, height: usize, seed: Option<u64>) -> Vec<u32> {
+        self.width = width;
+        self.height = height;
+
         let seed = seed.unwrap_or_else(|| rand::thread_rng().gen());
         let mut rng = rngs::StdRng::seed_from_u64(seed);
         println!("seed {}", seed);
-        let mut data = Vec::new();
-        data.resize((width * height) as usize, self.states.clone());
+        self.data
+            .resize((width * height) as usize, self.states.clone());
         let mut propagation: VecDeque<usize> = VecDeque::new();
         let mut observed = 0;
         let mut time = std::time::Instant::now();
@@ -224,7 +254,7 @@ impl WfcInput {
             if let Some(to_collapse) = propagation.pop_front() {
                 let x = to_collapse % width;
                 let y = to_collapse / width;
-                let states = data[x + y * width].clone();
+                let states = self.data[x + y * width].clone();
 
                 if states.len() <= 1 {
                     continue;
@@ -236,29 +266,12 @@ impl WfcInput {
                     .filter_map(|&state| {
                         // for each neighbour
                         // TODO check only nearest neighbours (range = 1 instead of self.range) ?
-                        for (xx, yy) in Iter2D::new(self.range) {
-                            if (x + xx).checked_sub(self.range).is_some()
-                                && (y + yy).checked_sub(self.range).is_some()
-                                && x + xx < width
-                                && y + yy < height
-                            {
-                                // get its value
-                                let neighbor_states = &data[((x + xx - self.range)
-                                    + (y + yy - self.range) * width)
-                                    as usize];
-                                // if its already collapsed
-                                // TODO ? or not ? maybe we should try all its possible states if its not collapsed
-                                if neighbor_states.len() == 1 {
-                                    // xx, yy are relative to the tile we are working on
-                                    // so we need to invert them to get the direction (here we do a point symetry on the center)
-                                    let (rx, ry) = (2 * self.range - xx, 2 * self.range - yy);
-                                    if !self.rules[&neighbor_states[0]]
-                                        [ry * (self.range * 2 + 1) + rx]
-                                        .contains_key(&state)
-                                    {
-                                        // the state is not allowed
-                                        return None;
-                                    }
+                        // TODO ? or not ? maybe we should try all its possible states if its not collapsed
+                        for (neighbor_states, _, dir) in self.get_neighbours(x, y, self.range) {
+                            if neighbor_states.len() == 1 {
+                                if !self.rules[&neighbor_states[0]][dir].contains_key(&state) {
+                                    // the state is not allowed
+                                    return None;
                                 }
                             }
                         }
@@ -269,20 +282,14 @@ impl WfcInput {
                 if allowed_states.len() == 1 {
                     observed += 1;
                 }
-                data[x + y * width] = allowed_states;
+                self.data[x + y * width] = allowed_states;
                 // TODO same, maybe we can just push the range 1 neighbours ?
-                for (xx, yy) in Iter2D::new(self.range) {
-                    if (x + xx).checked_sub(self.range).is_some()
-                        && (y + yy).checked_sub(self.range).is_some()
-                        && x + xx < width
-                        && y + yy < height
-                    {
-                        let i = (x + xx - self.range) + (y + yy - self.range) * width;
-                        propagation.push_back(i);
-                    }
+                for (_, index, _) in self.get_neighbours(x, y, self.range) {
+                    propagation.push_back(index);
                 }
             } else {
-                if let Some(lowest_entropy) = data
+                if let Some(lowest_entropy) = self
+                    .data
                     .iter()
                     .filter_map(|states| {
                         if states.len() > 1 {
@@ -293,7 +300,8 @@ impl WfcInput {
                     })
                     .min()
                 {
-                    let lowest_entropy_indices: Vec<usize> = data
+                    let lowest_entropy_indices: Vec<usize> = self
+                        .data
                         .iter()
                         .enumerate()
                         .filter_map(|(i, states)| {
@@ -307,26 +315,15 @@ impl WfcInput {
                     let i = *lowest_entropy_indices.choose(&mut rng).unwrap();
                     let x = i % width;
                     let y = i / width;
-                    data[i] = vec![*data[i]
+                    self.data[i] = vec![*self.data[i]
                         .choose_weighted(&mut rng, |state| {
-                            Iter2D::new(self.range)
-                                .map(|(xx, yy)| {
-                                    if (x + xx).checked_sub(self.range).is_some()
-                                        && (y + yy).checked_sub(self.range).is_some()
-                                        && x + xx < width
-                                        && y + yy < height
-                                    {
-                                        let neighbor = &data[((x + xx - self.range)
-                                            + (y + yy - self.range) * width)
-                                            as usize];
-                                        if neighbor.len() == 1 {
-                                            let (rx, ry) =
-                                                (2 * self.range - xx, 2 * self.range - yy);
-                                            return *self.rules[&neighbor[0]]
-                                                [ry * (self.range * 2 + 1) + rx]
-                                                .get(state)
-                                                .unwrap_or(&0.);
-                                        }
+                            self.get_neighbours(x, y, self.range)
+                                .iter()
+                                .map(|(neighbor_states, _, dir)| {
+                                    if neighbor_states.len() == 1 {
+                                        return *self.rules[&neighbor_states[0]][*dir]
+                                            .get(state)
+                                            .unwrap_or(&0.);
                                     }
                                     1.
                                 })
@@ -336,7 +333,7 @@ impl WfcInput {
                     observed += 1;
                 } else {
                     println!("done");
-                    return data.iter().map(|s| s[0]).collect();
+                    return self.data.iter().map(|s| s[0]).collect();
                 }
             }
         }
@@ -353,7 +350,7 @@ fn main() {
         panic!("failed to open {}", filename);
     };
 
-    let mut wfc = WfcInput::from_image(1, &img);
+    let mut wfc = Wfc::from_image(1, &img);
     let (w, h) = (128 as u32, 128 as u32);
     let start = std::time::Instant::now();
     let data = wfc.gen(w as usize, h as usize, None);
