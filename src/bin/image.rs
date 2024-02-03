@@ -357,7 +357,7 @@ impl Wfc {
                     }
                 } else {
                     println!("done");
-                    return self.data.iter().map(|s| s[0]).collect();
+                    return self.data.iter().map(|s| *s.get(0).unwrap_or(&0)).collect();
                 }
             }
         }
