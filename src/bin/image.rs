@@ -144,7 +144,7 @@ impl Wfc {
 
         println!("found {} states", states.len());
         for state in states {
-            println!("state: 0x{:08x}", state);
+            println!("\tstate: 0x{:08x}", state);
             self.states.push(state);
         }
     }
