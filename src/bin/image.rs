@@ -1,4 +1,4 @@
-use image::GenericImageView;
+use image::{ColorType, GenericImageView, ImageBuffer};
 use rand::{rngs, seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -19,12 +19,12 @@ use std::{
 /// > 2,2
 /// ```
 struct Iter2D {
-    range: u32,
-    current: (u32, u32),
+    range: usize,
+    current: (usize, usize),
 }
 
 impl Iter2D {
-    fn new(range: u32) -> Self {
+    fn new(range: usize) -> Self {
         Iter2D {
             current: (0, 0),
             range,
@@ -33,7 +33,7 @@ impl Iter2D {
 }
 
 impl Iterator for Iter2D {
-    type Item = (u32, u32);
+    type Item = (usize, usize);
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.current {
@@ -190,8 +190,10 @@ impl WfcInput {
         }
     }
 
-    fn gen(&mut self, width: usize, height: usize, seed: Option<u64>) {
+    fn gen(&mut self, width: usize, height: usize, seed: Option<u64>) -> Vec<u32> {
         let seed = seed.unwrap_or_else(|| rand::thread_rng().gen());
+        let mut rng = rngs::StdRng::seed_from_u64(seed);
+        println!("seed {}", seed);
         let mut data = Vec::new();
         data.resize((width * height) as usize, self.states.clone());
         let mut propagation: VecDeque<usize> = VecDeque::new();
@@ -206,16 +208,72 @@ impl WfcInput {
                     continue;
                 }
 
+                // get allowed states
                 let allowed_states: Vec<u32> = states
                     .iter()
                     .filter_map(|&state| {
-                        for neighbor in neighbors {
-                            return None;
+                        // for each neighbour
+                        // TODO check only nearest neighbours (range = 1 instead of self.range) ?
+                        for (xx, yy) in Iter2D::new(self.range) {
+                            if (x + xx).checked_sub(self.range).is_none()
+                                && (y + yy).checked_sub(self.range).is_none()
+                                && x + xx < width
+                                && y + yy < height
+                            {
+                                // get its value
+                                let neighbor_states = &data[((x + xx - self.range)
+                                    + (y + yy - self.range) * width)
+                                    as usize];
+                                // if its already collapsed
+                                // TODO ? or not ? maybe we should try all its possible states if its not collapsed
+                                if neighbor_states.len() == 1 {
+                                    // xx, yy are relative to the tile we are working on
+                                    // so we need to invert them to get the direction (here we do a point symetry on the center)
+                                    let (rx, ry) = (2 * self.range - xx, 2 * self.range - yy);
+                                    if !self.rules[&neighbor_states[0]]
+                                        [ry * (self.range * 2 + 1) + rx]
+                                        .contains_key(&state)
+                                    {
+                                        // the state is not allowed
+                                        return None;
+                                    }
+                                }
+                            }
                         }
+                        // the state is allowed, because no neighbour returned None before
                         Some(state)
                     })
                     .collect();
+                data[x + y * width] = allowed_states;
             } else {
+                if let Some(lowest_entropy) = data
+                    .iter()
+                    .filter_map(|states| {
+                        if states.len() > 1 {
+                            Some(states.len())
+                        } else {
+                            None
+                        }
+                    })
+                    .min()
+                {
+                    let lowest_entropy_indices: Vec<usize> = data
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, states)| {
+                            if states.len() == lowest_entropy {
+                                Some(i)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    let i = *lowest_entropy_indices.choose(&mut rng).unwrap();
+                    data[i] = vec![*data[i].choose(&mut rng).unwrap()];
+                } else {
+                    println!("done");
+                    return data.iter().map(|s| s[0]).collect();
+                }
             }
         }
     }
@@ -231,5 +289,8 @@ fn main() {
         panic!("failed to open {}", filename);
     };
 
-    let wfc = WfcInput::from_image(1, &img);
+    let mut wfc = WfcInput::from_image(1, &img);
+    let data = wfc.gen(128, 128, None);
+    let buffer: Vec<u8> = data.iter().flat_map(|v| v.to_le_bytes()).collect();
+    image::save_buffer("out.png", &buffer, 128, 128, ColorType::Rgba8).unwrap()
 }
