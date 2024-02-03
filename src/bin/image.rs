@@ -1,16 +1,74 @@
 use image::GenericImageView;
+use rand::{rngs, seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     env,
 };
+
+/// this iterator will yield all the coords of a square around a point (except for the point itself)
+/// ```
+/// Iter2D::new(1).for_each(|(x, y)| println!("{},{}", x, y));
+/// > 0,0
+/// > 0,1
+/// > 0,2
+/// > 1,0
+/// // notice the missing 1,1
+/// > 1,2
+/// > 2,0
+/// > 2,1
+/// > 2,2
+/// ```
+struct Iter2D {
+    range: u32,
+    current: (u32, u32),
+}
+
+impl Iter2D {
+    fn new(range: u32) -> Self {
+        Iter2D {
+            current: (0, 0),
+            range,
+        }
+    }
+}
+
+impl Iterator for Iter2D {
+    type Item = (u32, u32);
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.current {
+                (x, y) if x == self.range && y == self.range => {
+                    self.current.0 += 1;
+                }
+                (x, y) if x < self.range * 2 => {
+                    self.current.0 += 1;
+                    return Some((x, y));
+                }
+                (x, y) if y < self.range * 2 => {
+                    self.current.0 = 0;
+                    self.current.1 += 1;
+                    return Some((x, y));
+                }
+                (x, y) if x == self.range * 2 && y == self.range * 2 => {
+                    self.current.0 += 1;
+                    return Some((x, y));
+                }
+                _ => return None,
+            }
+        }
+    }
+}
 
 struct WfcInput {
     width: usize,
     height: usize,
+
+    /// input data
     data: Vec<u32>,
 
     /// how many pixels to look around to infer rules
     range: usize,
+    /// the list of allowed states
     states: Vec<u32>,
     /// the inferred rules and weights
     /// rules[state][direction][state] = weight
@@ -129,6 +187,36 @@ impl WfcInput {
                 })
                 .collect();
             self.rules.insert(*state, directions);
+        }
+    }
+
+    fn gen(&mut self, width: usize, height: usize, seed: Option<u64>) {
+        let seed = seed.unwrap_or_else(|| rand::thread_rng().gen());
+        let mut data = Vec::new();
+        data.resize((width * height) as usize, self.states.clone());
+        let mut propagation: VecDeque<usize> = VecDeque::new();
+
+        loop {
+            if let Some(to_collapse) = propagation.pop_front() {
+                let x = to_collapse % width;
+                let y = to_collapse / width;
+                let states = data[x + y * width].clone();
+
+                if states.len() <= 1 {
+                    continue;
+                }
+
+                let allowed_states: Vec<u32> = states
+                    .iter()
+                    .filter_map(|&state| {
+                        for neighbor in neighbors {
+                            return None;
+                        }
+                        Some(state)
+                    })
+                    .collect();
+            } else {
+            }
         }
     }
 }
