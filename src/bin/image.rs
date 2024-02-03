@@ -78,8 +78,10 @@ struct Wfc {
     /// the list of allowed states
     states: Vec<u32>,
     /// the inferred rules and weights
+    /// ```
     /// rules[state][direction][state] = weight
-    /// careful, rules[state][] is empty
+    /// ```
+    /// careful, rules[state] is empty for direction = center
     rules: HashMap<u32, Vec<HashMap<u32, f32>>>,
 }
 
