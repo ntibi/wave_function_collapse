@@ -301,10 +301,12 @@ impl Wfc {
                 if allowed_states.len() == 1 {
                     observed += 1;
                 }
-                self.data[x + y * width] = allowed_states;
-                // TODO same, maybe we can just push the range 1 neighbours ?
-                for (_, index, _) in self.get_neighbours(x, y, self.range) {
-                    propagation.push_back(index);
+                if allowed_states.len() != self.data[x + y * width].len() {
+                    self.data[x + y * width] = allowed_states;
+                    // TODO same, maybe we can just push the range 1 neighbours ?
+                    for (_, index, _) in self.get_neighbours(x, y, self.range) {
+                        propagation.push_back(index);
+                    }
                 }
             } else {
                 if let Some(lowest_entropy) = self
@@ -350,6 +352,9 @@ impl Wfc {
                         })
                         .unwrap()];
                     observed += 1;
+                    for (_, index, _) in self.get_neighbours(x, y, self.range) {
+                        propagation.push_back(index);
+                    }
                 } else {
                     println!("done");
                     return self.data.iter().map(|s| s[0]).collect();
