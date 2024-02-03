@@ -245,20 +245,13 @@ impl Wfc {
             .iter()
             .flat_map(|s| {
                 let bytes = s.iter().map(|v| v.to_be_bytes()).collect::<Vec<[u8; 4]>>();
-                let mut mean_per_byte = vec![0; 4];
+                let mut mean_per_byte = vec![0; self.bpp];
                 for (i, byte) in bytes.iter().enumerate() {
-                    mean_per_byte[0] = (mean_per_byte[0] as i32
-                        + (byte[0] as i32 - mean_per_byte[0] as i32) / (i as i32 + 1))
-                        as u8;
-                    mean_per_byte[1] = (mean_per_byte[1] as i32
-                        + (byte[1] as i32 - mean_per_byte[1] as i32) / (i as i32 + 1))
-                        as u8;
-                    mean_per_byte[2] = (mean_per_byte[2] as i32
-                        + (byte[2] as i32 - mean_per_byte[2] as i32) / (i as i32 + 1))
-                        as u8;
-                    mean_per_byte[3] = (mean_per_byte[3] as i32
-                        + (byte[3] as i32 - mean_per_byte[3] as i32) / (i as i32 + 1))
-                        as u8;
+                    for j in 0..self.bpp {
+                        mean_per_byte[j] = (mean_per_byte[j] as i32
+                            + (byte[1 + j] as i32 - mean_per_byte[j] as i32) / (i as i32 + 1))
+                            as u8;
+                    }
                 }
                 mean_per_byte
             })
@@ -431,6 +424,7 @@ fn main() {
             v.to_be_bytes()
                 .iter()
                 .cloned()
+                .skip(4 - wfc.bpp)
                 .take(wfc.bpp)
                 .collect::<Vec<_>>()
         })
