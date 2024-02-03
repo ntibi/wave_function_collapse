@@ -213,6 +213,23 @@ impl Wfc {
         }
     }
 
+    fn debug_rules(&self) {
+        println!();
+        println!();
+        println!();
+        println!();
+        println!("rules:");
+        for (state, directions) in self.rules.iter() {
+            println!("state: 0x{:08x}", state);
+            for (i, states) in directions.iter().enumerate() {
+                println!("  dir: {}", i);
+                for (state, weight) in states.iter() {
+                    println!("    0x{:08x} {:.2}", state, weight);
+                }
+            }
+        }
+    }
+
     //                                                                   states    idx    dir (from neighbor's pov)
     fn get_neighbours(&self, x: usize, y: usize, range: usize) -> Vec<(&Vec<u32>, usize, usize)> {
         let mut neighbours = Vec::new();
@@ -351,6 +368,7 @@ fn main() {
     };
 
     let mut wfc = Wfc::from_image(1, &img);
+    //wfc.debug_rules();
     let (w, h) = (128 as u32, 128 as u32);
     let start = std::time::Instant::now();
     let data = wfc.gen(w as usize, h as usize, None);
