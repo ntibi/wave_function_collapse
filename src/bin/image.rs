@@ -62,6 +62,7 @@ impl Iterator for Iter2D {
 struct WfcInput {
     width: usize,
     height: usize,
+    format: image::ColorType,
 
     /// input data
     data: Vec<u32>,
@@ -90,6 +91,7 @@ impl WfcInput {
             states: Vec::new(),
             range,
             rules: HashMap::new(),
+            format: img.color(),
         };
 
         b.parse_data(&img.as_bytes().to_vec());
@@ -106,12 +108,20 @@ impl WfcInput {
 
         for y in 0..self.height {
             for x in 0..self.width {
-                let idx = ((y * self.width + x) * 4) as usize;
+                let idx = ((y * self.width + x) * 3) as usize;
                 let r = data[idx];
                 let g = data[idx + 1];
                 let b = data[idx + 2];
-                let a = data[idx + 3];
-                let v = (r as u32) << 24 | (g as u32) << 16 | (b as u32) << 8 | a as u32;
+                let v = match self.format {
+                    ColorType::Rgb8 => (r as u32) << 16 | (g as u32) << 8 | (b as u32),
+                    ColorType::Rgba8 => {
+                        let a = data[idx + 3];
+                        (r as u32) << 24 | (g as u32) << 16 | (b as u32) << 8 | a as u32
+                    }
+                    _ => {
+                        panic!("unsupported format {:?}", self.format);
+                    }
+                };
                 self.data[(y * self.width + x) as usize] = v;
                 states.insert(v);
             }
@@ -197,8 +207,14 @@ impl WfcInput {
         let mut data = Vec::new();
         data.resize((width * height) as usize, self.states.clone());
         let mut propagation: VecDeque<usize> = VecDeque::new();
+        let mut observed = 0;
+        let mut time = std::time::Instant::now();
 
         loop {
+            if time.elapsed().as_secs() >= 1 {
+                println!("{:.2}%", observed as f32 / (width * height) as f32 * 100.);
+                time = std::time::Instant::now();
+            }
             if let Some(to_collapse) = propagation.pop_front() {
                 let x = to_collapse % width;
                 let y = to_collapse / width;
@@ -215,8 +231,8 @@ impl WfcInput {
                         // for each neighbour
                         // TODO check only nearest neighbours (range = 1 instead of self.range) ?
                         for (xx, yy) in Iter2D::new(self.range) {
-                            if (x + xx).checked_sub(self.range).is_none()
-                                && (y + yy).checked_sub(self.range).is_none()
+                            if (x + xx).checked_sub(self.range).is_some()
+                                && (y + yy).checked_sub(self.range).is_some()
                                 && x + xx < width
                                 && y + yy < height
                             {
@@ -244,6 +260,9 @@ impl WfcInput {
                         Some(state)
                     })
                     .collect();
+                if allowed_states.len() == 1 {
+                    observed += 1;
+                }
                 data[x + y * width] = allowed_states;
             } else {
                 if let Some(lowest_entropy) = data
@@ -269,7 +288,35 @@ impl WfcInput {
                         })
                         .collect();
                     let i = *lowest_entropy_indices.choose(&mut rng).unwrap();
-                    data[i] = vec![*data[i].choose(&mut rng).unwrap()];
+                    let x = i % width;
+                    let y = i / width;
+                    data[i] = vec![*data[i]
+                        .choose_weighted(&mut rng, |state| {
+                            Iter2D::new(self.range)
+                                .map(|(xx, yy)| {
+                                    if (x + xx).checked_sub(self.range).is_some()
+                                        && (y + yy).checked_sub(self.range).is_some()
+                                        && x + xx < width
+                                        && y + yy < height
+                                    {
+                                        let neighbor = &data[((x + xx - self.range)
+                                            + (y + yy - self.range) * width)
+                                            as usize];
+                                        if neighbor.len() == 1 {
+                                            let (rx, ry) =
+                                                (2 * self.range - xx, 2 * self.range - yy);
+                                            return *self.rules[&neighbor[0]]
+                                                [ry * (self.range * 2 + 1) + rx]
+                                                .get(state)
+                                                .unwrap_or(&0.);
+                                        }
+                                    }
+                                    1.
+                                })
+                                .sum::<f32>()
+                        })
+                        .unwrap()];
+                    observed += 1;
                 } else {
                     println!("done");
                     return data.iter().map(|s| s[0]).collect();
@@ -290,7 +337,26 @@ fn main() {
     };
 
     let mut wfc = WfcInput::from_image(1, &img);
-    let data = wfc.gen(128, 128, None);
-    let buffer: Vec<u8> = data.iter().flat_map(|v| v.to_le_bytes()).collect();
-    image::save_buffer("out.png", &buffer, 128, 128, ColorType::Rgba8).unwrap()
+    let (w, h) = (128 as u32, 128 as u32);
+    let start = std::time::Instant::now();
+    let data = wfc.gen(w as usize, h as usize, None);
+    println!("generated in {:?}", start.elapsed());
+
+    let bytes_per_pixel = match wfc.format {
+        ColorType::Rgb8 => 3,
+        ColorType::Rgba8 => 4,
+        _ => panic!("unsupported format {:?}", wfc.format),
+    };
+
+    let buffer: Vec<u8> = data
+        .iter()
+        .flat_map(|v| {
+            v.to_le_bytes()
+                .iter()
+                .cloned()
+                .take(bytes_per_pixel)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    image::save_buffer(filename, &buffer, w, h, wfc.format).unwrap()
 }
