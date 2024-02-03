@@ -71,17 +71,19 @@ impl WfcInput {
         //                     \     |     /
         let mut rules: HashMap<u32, Vec<Vec<u32>>> = HashMap::with_capacity(self.states.len());
 
+        // width (and height) of the directions grid
+        let dirs_width = (self.range * 2 + 1);
         self.states.iter().for_each(|&state| {
-            rules.insert(state, vec![Vec::new(); (self.range * 2 + 1).pow(2)]);
+            rules.insert(state, vec![Vec::new(); dirs_width.pow(2)]);
         });
 
         for x in 0..self.width {
             for y in 0..self.height {
                 let v = self.data[(y * self.width + x) as usize];
-                for subrange_x in 0..=self.range * 2 {
-                    for subrange_y in 0..=self.range * 2 {
+                for subrange_x in 0..dirs_width {
+                    for subrange_y in 0..dirs_width {
                         // do not use the cell were working on for the rules
-                        if subrange_x == self.range || subrange_y == self.range {
+                        if subrange_x == self.range && subrange_y == self.range {
                             continue;
                         }
                         if (x + subrange_x).checked_sub(self.range).is_none() {
@@ -97,11 +99,11 @@ impl WfcInput {
                             continue;
                         }
 
-                        let v1 = self.data[((x + subrange_x - self.range) * self.width
-                            + (y + subrange_y - self.range))
+                        let v1 = self.data[((x + subrange_x - self.range)
+                            + (y + subrange_y - self.range) * self.width)
                             as usize];
 
-                        rules.get_mut(&v).unwrap()[subrange_x * self.range + subrange_y].push(v1);
+                        rules.get_mut(&v).unwrap()[subrange_y * dirs_width + subrange_x].push(v1);
                     }
                 }
             }
@@ -128,8 +130,6 @@ impl WfcInput {
                 .collect();
             self.rules.insert(*state, directions);
         }
-
-        println!("inferred rules for {:?} ", self.rules);
     }
 }
 
