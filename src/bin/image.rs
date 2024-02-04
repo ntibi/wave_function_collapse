@@ -19,7 +19,7 @@ struct Wfc {
     sampled_data: Vec<u32>,
 
     /// the data we work on
-    data: Vec<Vec<u32>>,
+    data: Vec<Vec<(u32, f32)>>,
 
     /// used to count intermediate images
     img_count: usize,
@@ -201,13 +201,18 @@ impl Wfc {
             .data
             .iter()
             .flat_map(|s| {
-                let bytes = s.iter().map(|v| v.to_be_bytes()).collect::<Vec<[u8; 4]>>();
+                let weighted_bytes =
+                    s.iter()
+                        .map(|(v, w)| (v.to_be_bytes(), *w))
+                        .collect::<Vec<([u8; 4], f32)>>();
                 let mut mean_per_byte = vec![0; self.bpp];
-                for (i, byte) in bytes.iter().enumerate() {
+                for (i, (byte, w)) in weighted_bytes.iter().enumerate() {
                     for j in 0..self.bpp {
-                        mean_per_byte[j] = (mean_per_byte[j] as i32
+                        mean_per_byte[j] = (((mean_per_byte[j] as i32
                             + (byte[(4 - self.bpp) + j] as i32 - mean_per_byte[j] as i32)
-                                / (i as i32 + 1)) as u8;
+                                / (i as i32 + 1))
+                            as u8) as f32
+                            * *w) as u8;
                     }
                 }
                 mean_per_byte
@@ -225,8 +230,13 @@ impl Wfc {
         self.img_count += 1;
     }
 
-    //                                                                   states    idx    dir (from neighbor's pov)
-    fn get_neighbours(&self, x: usize, y: usize, range: usize) -> Vec<(&Vec<u32>, usize, usize)> {
+    // outputs Vec<(Vec<(states, weight)>, idx, dir)> (dir is from neighbor's pov)
+    fn get_neighbours(
+        &self,
+        x: usize,
+        y: usize,
+        range: usize,
+    ) -> Vec<(&Vec<(u32, f32)>, usize, usize)> {
         let mut neighbours = Vec::new();
 
         for dir in 0..(range * 2 + 1).pow(2) {
@@ -251,11 +261,11 @@ impl Wfc {
     fn get_weighted_possible_states(&self, x: usize, y: usize) -> Vec<(u32, f32)> {
         let states = self.data[x + y * self.width].clone();
         let mut weighted_states = Vec::new();
-        for state in states {
+        for (state, _) in states {
             let mut weight = 1.;
             for (neighbor_states, _, dir) in self.get_neighbours(x, y, self.range) {
                 if neighbor_states.len() == 1 {
-                    if let Some(w) = self.rules[&neighbor_states[0]][dir].get(&state) {
+                    if let Some(w) = self.rules[&neighbor_states[0].0][dir].get(&state) {
                         weight += w;
                     } else {
                         weight = 0.;
@@ -275,8 +285,13 @@ impl Wfc {
         let seed = seed.unwrap_or_else(|| rand::thread_rng().gen());
         let mut rng = rngs::StdRng::seed_from_u64(seed);
         println!("seed {}", seed);
-        self.data
-            .resize((width * height) as usize, self.states.clone());
+        self.data.resize(
+            (width * height) as usize,
+            self.states
+                .iter()
+                .map(|&s| (s, 1. / self.states.len() as f32))
+                .collect(),
+        );
         let mut propagation: VecDeque<usize> = VecDeque::new();
         let mut observed = 0;
         let mut time = std::time::Instant::now();
@@ -296,29 +311,13 @@ impl Wfc {
                 }
 
                 // get allowed states
-                let allowed_states: Vec<u32> = states
-                    .iter()
-                    .filter_map(|&state| {
-                        // for each neighbour
-                        // TODO check only nearest neighbours (range = 1 instead of self.range) ?
-                        // TODO ? or not ? maybe we should try all its possible states if its not collapsed
-                        for (neighbor_states, _, dir) in self.get_neighbours(x, y, self.range) {
-                            if neighbor_states.len() == 1 {
-                                if !self.rules[&neighbor_states[0]][dir].contains_key(&state) {
-                                    // the state is not allowed
-                                    return None;
-                                }
-                            }
-                        }
-                        // the state is allowed, because no neighbour returned None before
-                        Some(state)
-                    })
-                    .collect();
-                if allowed_states.len() == 1 {
+
+                let new_weighted_states = self.get_weighted_possible_states(x, y);
+                if new_weighted_states.len() == 1 {
                     observed += 1;
                 }
-                if allowed_states.len() != self.data[x + y * width].len() {
-                    self.data[x + y * width] = allowed_states;
+                if new_weighted_states.len() != self.data[x + y * width].len() {
+                    self.data[x + y * width] = new_weighted_states;
                     // TODO same, maybe we can just push the range 1 neighbours ?
                     for (_, index, _) in self.get_neighbours(x, y, self.range) {
                         propagation.push_back(index);
@@ -332,11 +331,9 @@ impl Wfc {
                     .enumerate()
                     .filter_map(|(i, states)| {
                         if states.len() > 1 {
-                            let x = i % self.width;
-                            let y = i / self.width;
                             Some((
                                 i,
-                                -self.get_weighted_possible_states(x, y).iter().fold(
+                                -states.iter().fold(
                                     0.,
                                     // shannon's entropy (if not, all the tiles have the same entropy, especially on simple samples)
                                     |acc, (_, w)| {
@@ -355,10 +352,15 @@ impl Wfc {
                         }
                     })
                     .collect();
+                println!("tiles with entropy {:?}", tiles_with_entropy);
 
                 if tiles_with_entropy.is_empty() {
                     println!("done");
-                    return self.data.iter().map(|s| *s.get(0).unwrap_or(&0)).collect();
+                    return self
+                        .data
+                        .iter()
+                        .map(|s| if let Some(v) = s.get(0) { v.0 } else { 0 })
+                        .collect();
                 }
                 let (_, lowest_entropy) = tiles_with_entropy
                     .iter()
@@ -377,7 +379,7 @@ impl Wfc {
                 let weighted_states = self.get_weighted_possible_states(x, y);
                 if let Ok(state) = weighted_states.choose_weighted(&mut rng, |(_, weight)| *weight)
                 {
-                    self.data[i] = vec![state.0];
+                    self.data[i] = vec![*state];
                 } else {
                     self.data[i] = vec![];
                 }
@@ -401,8 +403,8 @@ fn main() {
     };
 
     let mut wfc = Wfc::from_image(1, &img);
-    //wfc.debug_rules();
-    let (w, h) = (64 as u32, 64 as u32);
+    wfc.debug_rules();
+    let (w, h) = (32 as u32, 32 as u32);
     let start = std::time::Instant::now();
     let data = wfc.gen(w as usize, h as usize, None);
     println!("generated in {:?}", start.elapsed());
