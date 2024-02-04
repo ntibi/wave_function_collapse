@@ -265,9 +265,10 @@ impl Wfc {
         let mut weighted_states = Vec::new();
         for (state, _) in states {
             let mut weight = 1.;
-            for (neighbor_states, _, dir) in self.get_neighbours(x, y, self.range) {
+            let neighbors = self.get_neighbours(x, y, self.range);
+            for (neighbor_states, _, dir) in &neighbors {
                 if neighbor_states.len() == 1 {
-                    if let Some(w) = self.rules[&neighbor_states[0].0][dir].get(&state) {
+                    if let Some(w) = self.rules[&neighbor_states[0].0][*dir].get(&state) {
                         // TODO
                         // weight += w would make more sense ?
                         weight += w;
@@ -281,7 +282,12 @@ impl Wfc {
                 weighted_states.push((state, weight));
             }
         }
+        let sum = weighted_states.iter().fold(0., |acc, (_, w)| acc + w);
+        // normalize
         weighted_states
+            .iter()
+            .map(|(s, w)| (*s, *w / sum))
+            .collect()
     }
 
     fn gen(&mut self, width: usize, height: usize, seed: Option<u64>) -> Vec<u32> {
