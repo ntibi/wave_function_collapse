@@ -302,22 +302,13 @@ impl Wfc {
         let mut propagation: VecDeque<usize> = VecDeque::new();
         let mut observed = 0;
         let mut time = std::time::Instant::now();
-        let mut updated: HashSet<usize> = HashSet::new();
 
         loop {
-            // TODO
-            // every time we collapse a tile, we should clone the data and read from old, while writing to new ?
-            // not sure because it means we wouldnt have the updated data for the propagation (making it useless)
-            // but also with the updated hashset, we only update each tile once
-            // not really sure what to do (if we dont have the hashset, we loop forever)
             if time.elapsed().as_secs() >= 1 {
                 println!("{:.2}%", observed as f32 / (width * height) as f32 * 100.);
                 time = std::time::Instant::now();
             }
             if let Some(i) = propagation.pop_front() {
-                if updated.contains(&i) {
-                    continue;
-                }
                 let x = i % width;
                 let y = i / width;
                 let states = self.data[x + y * width].clone();
@@ -332,19 +323,15 @@ impl Wfc {
                 if new_weighted_states.len() == 1 {
                     observed += 1;
                 }
-                //if new_weighted_states.len() != self.data[x + y * width].len() {
-                self.data[x + y * width] = new_weighted_states;
-                updated.insert(i);
-                // TODO push propagation even if the state number didn't change ?
-                // so we can propagate the new weights
-                for (_, index, _) in self.get_neighbours(x, y, self.range) {
-                    if !updated.contains(&index) {
+                if states != new_weighted_states {
+                    self.data[x + y * width] = new_weighted_states;
+                    // TODO push propagation even if the state number didn't change ?
+                    // so we can propagate the new weights
+                    for (_, index, _) in self.get_neighbours(x, y, self.range) {
                         propagation.push_back(index);
                     }
                 }
-                //}
             } else {
-                updated.clear();
                 self.write_intermediary_image();
                 let tiles_with_entropy: Vec<(usize, f32)> = self
                     .data
