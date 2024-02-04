@@ -229,9 +229,9 @@ impl Wfc {
     fn get_neighbours(&self, x: usize, y: usize, range: usize) -> Vec<(&Vec<u32>, usize, usize)> {
         let mut neighbours = Vec::new();
 
-        for ii in 0..(range * 2 + 1).pow(2) {
-            let xx = ii % (range * 2 + 1);
-            let yy = ii / (range * 2 + 1);
+        for dir in 0..(range * 2 + 1).pow(2) {
+            let xx = dir % (range * 2 + 1);
+            let yy = dir / (range * 2 + 1);
             if (x + xx).checked_sub(range).is_some()
                 && (y + yy).checked_sub(range).is_some()
                 && x + xx < self.width
@@ -239,8 +239,7 @@ impl Wfc {
             {
                 let i = ((x + xx - range) + (y + yy - range) * self.width) as usize;
                 let neighbor_states = &self.data[i];
-                let (rx, ry) = (2 * range - xx, 2 * range - yy);
-                neighbours.push((neighbor_states, i, ry * (self.range * 2 + 1) + rx));
+                neighbours.push((neighbor_states, i, (self.range * 2 + 1).pow(2) - dir - 1));
             }
         }
 
