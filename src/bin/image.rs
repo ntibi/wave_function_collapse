@@ -5,60 +5,6 @@ use std::{
     env,
 };
 
-/// this iterator will yield all the coords of a square around a point (except for the point itself)
-/// ```
-/// Iter2D::new(1).for_each(|(x, y)| println!("{},{}", x, y));
-/// > 0,0
-/// > 0,1
-/// > 0,2
-/// > 1,0
-/// // notice the missing 1,1
-/// > 1,2
-/// > 2,0
-/// > 2,1
-/// > 2,2
-/// ```
-struct Iter2D {
-    range: usize,
-    current: (usize, usize),
-}
-
-impl Iter2D {
-    fn new(range: usize) -> Self {
-        Iter2D {
-            current: (0, 0),
-            range,
-        }
-    }
-}
-
-impl Iterator for Iter2D {
-    type Item = (usize, usize);
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.current {
-                (x, y) if x == self.range && y == self.range => {
-                    self.current.0 += 1;
-                }
-                (x, y) if x < self.range * 2 => {
-                    self.current.0 += 1;
-                    return Some((x, y));
-                }
-                (x, y) if y < self.range * 2 => {
-                    self.current.0 = 0;
-                    self.current.1 += 1;
-                    return Some((x, y));
-                }
-                (x, y) if x == self.range * 2 && y == self.range * 2 => {
-                    self.current.0 += 1;
-                    return Some((x, y));
-                }
-                _ => return None,
-            }
-        }
-    }
-}
-
 struct Wfc {
     /// input image width
     width: usize,
@@ -272,7 +218,9 @@ impl Wfc {
     fn get_neighbours(&self, x: usize, y: usize, range: usize) -> Vec<(&Vec<u32>, usize, usize)> {
         let mut neighbours = Vec::new();
 
-        for (xx, yy) in Iter2D::new(range) {
+        for ii in 0..(range * 2 + 1).pow(2) {
+            let xx = ii % (range * 2 + 1);
+            let yy = ii / (range * 2 + 1);
             if (x + xx).checked_sub(range).is_some()
                 && (y + yy).checked_sub(range).is_some()
                 && x + xx < self.width
