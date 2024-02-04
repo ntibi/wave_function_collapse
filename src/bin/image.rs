@@ -277,7 +277,9 @@ impl Wfc {
                     }
                 }
             }
-            weighted_states.push((state, weight));
+            if weight > 0. {
+                weighted_states.push((state, weight));
+            }
         }
         weighted_states
     }
