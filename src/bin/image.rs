@@ -240,6 +240,10 @@ impl Wfc {
         let mut neighbours = Vec::new();
 
         for dir in 0..(range * 2 + 1).pow(2) {
+            // do not return self
+            if dir == range * (range * 2 + 1) + range {
+                continue;
+            }
             let xx = dir % (range * 2 + 1);
             let yy = dir / (range * 2 + 1);
             if (x + xx).checked_sub(range).is_some()
@@ -289,21 +293,33 @@ impl Wfc {
             (width * height) as usize,
             self.states
                 .iter()
+                // TODO 1 / len or 1 ?
+                // `weight = 1 / len` means entropy will be 1
+                // `weight = 1` means entropy will be 0
                 .map(|&s| (s, 1. / self.states.len() as f32))
                 .collect(),
         );
         let mut propagation: VecDeque<usize> = VecDeque::new();
         let mut observed = 0;
         let mut time = std::time::Instant::now();
+        let mut updated: HashSet<usize> = HashSet::new();
 
         loop {
+            // TODO
+            // every time we collapse a tile, we should clone the data and read from old, while writing to new ?
+            // not sure because it means we wouldnt have the updated data for the propagation (making it useless)
+            // but also with the updated hashset, we only update each tile once
+            // not really sure what to do (if we dont have the hashset, we loop forever)
             if time.elapsed().as_secs() >= 1 {
                 println!("{:.2}%", observed as f32 / (width * height) as f32 * 100.);
                 time = std::time::Instant::now();
             }
-            if let Some(to_collapse) = propagation.pop_front() {
-                let x = to_collapse % width;
-                let y = to_collapse / width;
+            if let Some(i) = propagation.pop_front() {
+                if updated.contains(&i) {
+                    continue;
+                }
+                let x = i % width;
+                let y = i / width;
                 let states = self.data[x + y * width].clone();
 
                 if states.len() <= 1 {
@@ -316,14 +332,19 @@ impl Wfc {
                 if new_weighted_states.len() == 1 {
                     observed += 1;
                 }
-                if new_weighted_states.len() != self.data[x + y * width].len() {
-                    self.data[x + y * width] = new_weighted_states;
-                    // TODO same, maybe we can just push the range 1 neighbours ?
-                    for (_, index, _) in self.get_neighbours(x, y, self.range) {
+                //if new_weighted_states.len() != self.data[x + y * width].len() {
+                self.data[x + y * width] = new_weighted_states;
+                updated.insert(i);
+                // TODO push propagation even if the state number didn't change ?
+                // so we can propagate the new weights
+                for (_, index, _) in self.get_neighbours(x, y, self.range) {
+                    if !updated.contains(&index) {
                         propagation.push_back(index);
                     }
                 }
+                //}
             } else {
+                updated.clear();
                 self.write_intermediary_image();
                 let tiles_with_entropy: Vec<(usize, f32)> = self
                     .data
@@ -352,7 +373,6 @@ impl Wfc {
                         }
                     })
                     .collect();
-                println!("tiles with entropy {:?}", tiles_with_entropy);
 
                 if tiles_with_entropy.is_empty() {
                     println!("done");
