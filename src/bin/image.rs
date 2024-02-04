@@ -268,6 +268,8 @@ impl Wfc {
             for (neighbor_states, _, dir) in self.get_neighbours(x, y, self.range) {
                 if neighbor_states.len() == 1 {
                     if let Some(w) = self.rules[&neighbor_states[0].0][dir].get(&state) {
+                        // TODO
+                        // weight += w would make more sense ?
                         weight += w;
                     } else {
                         weight = 0.;
