@@ -260,8 +260,6 @@ impl Wfc {
         neighbours
     }
 
-    // TODO
-    // maybe we should store this data in the tile data ? here we recompute it a LOT
     fn get_weighted_possible_states(&self, x: usize, y: usize) -> Vec<(u32, f32)> {
         let states = self.data[x + y * self.width].clone();
         let mut weighted_states = Vec::new();
@@ -291,13 +289,7 @@ impl Wfc {
         println!("seed {}", seed);
         self.data.resize(
             (width * height) as usize,
-            self.states
-                .iter()
-                // TODO 1 / len or 1 ?
-                // `weight = 1 / len` means entropy will be 1
-                // `weight = 1` means entropy will be 0
-                .map(|&s| (s, 1. / self.states.len() as f32))
-                .collect(),
+            self.states.iter().map(|&s| (s, 1.)).collect(),
         );
         let mut propagation: VecDeque<usize> = VecDeque::new();
         let mut observed = 0;
