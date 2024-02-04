@@ -288,6 +288,8 @@ impl Wfc {
         neighbours
     }
 
+    // TODO
+    // maybe we should store this data in the tile data ? here we recompute it a LOT
     fn get_weighted_possible_states(&self, x: usize, y: usize) -> Vec<(u32, f32)> {
         let states = self.data[x + y * self.width].clone();
         let mut weighted_states = Vec::new();
