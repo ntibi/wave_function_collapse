@@ -366,31 +366,29 @@ impl Wfc {
                 }
             } else {
                 self.write_intermediary_image();
-                if let Some(lowest_entropy) = self
+                if let Some((lowest_entropy, _)) = self
                     .data
                     .iter()
-                    .filter_map(|states| {
+                    .enumerate()
+                    .filter_map(|(i, states)| {
                         if states.len() > 1 {
-                            Some(states.len())
+                            let x = i % self.width;
+                            let y = i / self.width;
+                            Some((
+                                i,
+                                -self
+                                    .get_weighted_possible_states(x, y)
+                                    .iter()
+                                    // shannon's entropy (if not, all the tiles have the same entropy, especially on simple samples)
+                                    .fold(0., |acc, (_, w)| acc + w * w.log2()),
+                            ))
                         } else {
                             None
                         }
                     })
-                    .min()
+                    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                 {
-                    let lowest_entropy_indices: Vec<usize> = self
-                        .data
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, states)| {
-                            if states.len() == lowest_entropy {
-                                Some(i)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    let i = *lowest_entropy_indices.choose(&mut rng).unwrap();
+                    let i = lowest_entropy;
                     let x = i % width;
                     let y = i / width;
                     let weighted_states = self.get_weighted_possible_states(x, y);
@@ -426,7 +424,7 @@ fn main() {
 
     let mut wfc = Wfc::from_image(1, &img);
     //wfc.debug_rules();
-    let (w, h) = (32 as u32, 32 as u32);
+    let (w, h) = (64 as u32, 64 as u32);
     let start = std::time::Instant::now();
     let data = wfc.gen(w as usize, h as usize, None);
     println!("generated in {:?}", start.elapsed());
