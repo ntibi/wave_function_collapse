@@ -366,7 +366,7 @@ impl Wfc {
                 }
             } else {
                 self.write_intermediary_image();
-                if let Some((lowest_entropy, _)) = self
+                let tiles_with_entropy: Vec<(usize, f32)> = self
                     .data
                     .iter()
                     .enumerate()
@@ -376,36 +376,54 @@ impl Wfc {
                             let y = i / self.width;
                             Some((
                                 i,
-                                -self
-                                    .get_weighted_possible_states(x, y)
-                                    .iter()
+                                -self.get_weighted_possible_states(x, y).iter().fold(
+                                    0.,
                                     // shannon's entropy (if not, all the tiles have the same entropy, especially on simple samples)
-                                    .fold(0., |acc, (_, w)| acc + w * w.log2()),
+                                    |acc, (_, w)| {
+                                        // log2(0) is -inf, and 0 * -inf is nan
+                                        // so we just cut to -inf
+                                        if *w > 0. {
+                                            acc + w * w.log2()
+                                        } else {
+                                            acc + -f32::INFINITY
+                                        }
+                                    },
+                                ),
                             ))
                         } else {
                             None
                         }
                     })
-                    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                {
-                    let i = lowest_entropy;
-                    let x = i % width;
-                    let y = i / width;
-                    let weighted_states = self.get_weighted_possible_states(x, y);
-                    if let Ok(state) =
-                        weighted_states.choose_weighted(&mut rng, |(_, weight)| *weight)
-                    {
-                        self.data[i] = vec![state.0];
-                    } else {
-                        self.data[i] = vec![];
-                    }
-                    observed += 1;
-                    for (_, index, _) in self.get_neighbours(x, y, self.range) {
-                        propagation.push_back(index);
-                    }
-                } else {
+                    .collect();
+
+                if tiles_with_entropy.is_empty() {
                     println!("done");
                     return self.data.iter().map(|s| *s.get(0).unwrap_or(&0)).collect();
+                }
+                let (_, lowest_entropy) = tiles_with_entropy
+                    .iter()
+                    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                    .unwrap();
+                let i = tiles_with_entropy
+                    .iter()
+                    .filter(|(_, entropy)| *entropy == *lowest_entropy)
+                    .collect::<Vec<_>>()
+                    .choose(&mut rng)
+                    .unwrap()
+                    .0;
+
+                let x = i % width;
+                let y = i / width;
+                let weighted_states = self.get_weighted_possible_states(x, y);
+                if let Ok(state) = weighted_states.choose_weighted(&mut rng, |(_, weight)| *weight)
+                {
+                    self.data[i] = vec![state.0];
+                } else {
+                    self.data[i] = vec![];
+                }
+                observed += 1;
+                for (_, index, _) in self.get_neighbours(x, y, self.range) {
+                    propagation.push_back(index);
                 }
             }
         }
