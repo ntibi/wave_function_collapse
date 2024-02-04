@@ -256,7 +256,7 @@ impl Wfc {
                 mean_per_byte
             })
             .collect::<Vec<u8>>();
-        // ffmpeg -f image2 -framerate 60 -i './out/img_%05d.bmp' video.mp4
+        // ffmpeg -y -framerate 100 -i './out/img_%05d.bmp' -vf 'scale=1024:1024:flags=neighbor' video.mp4
         image::save_buffer(
             format!("out/img_{:05}.bmp", self.img_count).as_str(),
             buffer,
