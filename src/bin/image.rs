@@ -265,10 +265,9 @@ impl Wfc {
         let mut weighted_states = Vec::new();
         for (state, _) in states {
             let mut weight = 1.;
-            let neighbors = self.get_neighbours(x, y, self.range);
-            for (neighbor_states, _, dir) in &neighbors {
+            for (neighbor_states, _, dir) in self.get_neighbours(x, y, self.range) {
                 if neighbor_states.len() == 1 {
-                    if let Some(w) = self.rules[&neighbor_states[0].0][*dir].get(&state) {
+                    if let Some(w) = self.rules[&neighbor_states[0].0][dir].get(&state) {
                         // TODO
                         // weight += w would make more sense ?
                         weight += w;
