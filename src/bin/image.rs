@@ -169,17 +169,28 @@ impl Wfc {
     }
 
     fn debug_rules(&self) {
+        let mut state_name = HashMap::new();
+        state_name.insert(0x00000000, "black");
+        state_name.insert(0x00ffffff, "white");
         println!();
         println!();
         println!();
         println!();
         println!("rules:");
         for (state, directions) in self.rules.iter() {
-            println!("state: 0x{:08x}", state);
+            if let Some(name) = state_name.get(state) {
+                println!("state: {}", name);
+            } else {
+                println!("state: 0x{:08x}", state);
+            }
             for (i, states) in directions.iter().enumerate() {
                 println!("  dir: {}", i);
                 for (state, weight) in states.iter() {
-                    println!("    0x{:08x} {:.2}", state, weight);
+                    if let Some(name) = state_name.get(state) {
+                        println!("    {} {:.2}", name, weight);
+                    } else {
+                        println!("    0x{:08x} {:.2}", state, weight);
+                    }
                 }
             }
         }
