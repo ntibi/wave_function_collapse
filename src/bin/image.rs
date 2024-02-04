@@ -1,5 +1,5 @@
-use image::{ColorType, GenericImageView, ImageBuffer};
-use rand::{rngs, seq::SliceRandom, thread_rng, Rng, SeedableRng};
+use image::{ColorType, GenericImageView};
+use rand::{rngs, seq::SliceRandom, Rng, SeedableRng};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     env,
