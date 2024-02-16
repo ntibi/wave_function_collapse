@@ -273,8 +273,8 @@ impl Wfc {
             let yy = dir / (range * 2 + 1);
             if (x + xx).checked_sub(range).is_some()
                 && (y + yy).checked_sub(range).is_some()
-                && x + xx < self.width
-                && y + yy < self.height
+                && x + xx <= self.width
+                && y + yy <= self.height
             {
                 let i = ((x + xx - range) + (y + yy - range) * self.width) as usize;
                 let neighbor_states = &self.data[i];
@@ -291,11 +291,14 @@ impl Wfc {
         for (state, _) in states {
             let mut weight = 1.;
             // TODO we could invert those loops to avoid calling get_neighbours for every state
-            for (neighbor_states, _, dir) in self.get_neighbours(x, y, self.range) {
+            for (neighbor_states, i, dir) in self.get_neighbours(x, y, self.range) {
+                // we have an observed neighbor
                 if neighbor_states.len() == 1 {
+                    // is the state we are checking compatible with the observed neighbor ? if not, set weight to zero
                     if let Some(&w) = self.rules[&neighbor_states[0].0][dir].get(&state) {
                         if w > 0. {
                             weight += w;
+                            // TODO should not happen ?
                         } else {
                             weight = 0.;
                             break;
@@ -327,7 +330,10 @@ impl Wfc {
         println!("seed {}", seed);
         self.data.resize(
             (width * height) as usize,
-            self.states.iter().map(|&s| (s, 1.)).collect(),
+            self.states
+                .iter()
+                .map(|&s| (s, 1. / self.states.len() as f32))
+                .collect(),
         );
         let mut propagation: VecDeque<usize> = VecDeque::new();
         let mut observed = 0;
@@ -338,6 +344,7 @@ impl Wfc {
                 println!("{:.2}%", observed as f32 / (width * height) as f32 * 100.);
                 time = std::time::Instant::now();
             }
+
             if let Some(i) = propagation.pop_front() {
                 let x = i % width;
                 let y = i / width;
@@ -392,7 +399,6 @@ impl Wfc {
                     .collect();
 
                 if tiles_with_entropy.is_empty() {
-                    println!("done");
                     return self
                         .data
                         .iter()
@@ -416,7 +422,7 @@ impl Wfc {
                 let weighted_states = self.get_weighted_possible_states(x, y);
                 if let Ok(state) = weighted_states.choose_weighted(&mut rng, |(_, weight)| *weight)
                 {
-                    self.data[i] = vec![*state];
+                    self.data[i] = vec![(state.0, 1.)];
                 } else {
                     self.data[i] = vec![];
                 }
@@ -441,9 +447,10 @@ fn main() {
 
     let mut wfc = Wfc::from_image(1, &img);
     wfc.debug_rules();
-    let (w, h) = (32 as u32, 32 as u32);
+    let (w, h) = (3 as u32, 3 as u32);
     let start = std::time::Instant::now();
     let data = wfc.gen(w as usize, h as usize, None);
+    //let data = wfc.gen(w as usize, h as usize, Some(17550241477713680911));
     println!("generated in {:?}", start.elapsed());
 
     let buffer: Vec<u8> = data
