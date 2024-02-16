@@ -5,433 +5,141 @@ use std::{
     env,
 };
 
-struct Wfc {
-    /// input image width
-    width: usize,
-    /// input image height
-    height: usize,
-    /// input image format
-    format: image::ColorType,
-    /// bytes per pixel
-    bpp: usize,
-
-    /// input data
-    sampled_data: Vec<u32>,
-
-    /// the data we work on
-    data: Vec<Vec<(u32, f32)>>,
-
-    /// used to count intermediate images
-    img_count: usize,
-
-    /// how many pixels to look around to infer rules
-    range: usize,
-    /// the list of allowed states
-    states: Vec<u32>,
-    /// the inferred rules and weights
-    /// ```
-    /// rules[state][direction][state] = weight
-    /// ```
-    /// careful, rules[state] is empty for direction = center
-    rules: HashMap<u32, Vec<HashMap<u32, f32>>>,
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+struct Pattern {
+    pattern: Vec<u32>,
 }
 
-impl Wfc {
-    /// Create a new Wfc from an image
+impl Pattern {
+    fn new(pattern: Vec<u32>) -> Self {
+        Pattern { pattern }
+    }
+}
+
+#[derive(Debug)]
+struct WeightedPattern {
+    pattern: Pattern,
+    weight: f32,
+}
+
+impl WeightedPattern {
+    fn new(pattern: Pattern, weight: f32) -> Self {
+        WeightedPattern { pattern, weight }
+    }
+}
+
+struct WfcGenerator {
+    range: usize,
+    patterns: Vec<WeightedPattern>,
+}
+
+impl WfcGenerator {
+    /// Create a new WfcGenerator from an image
     /// * `range` - the range to look around to infer rules
     /// * `img` - the image to ingest
     fn from_image(range: usize, img: &image::DynamicImage) -> Self {
         let (width, height) = img.dimensions();
-        println!("ingested {}x{} {:?}", width, height, img.color());
-        let mut wfc = Self {
-            width: 0,
-            height: 0,
-            data: Vec::new(),
-            sampled_data: Vec::new(),
-            states: Vec::new(),
-            range,
-            rules: HashMap::new(),
-            format: img.color(),
-            bpp: 0,
-            img_count: 0,
-        };
 
-        wfc.parse_data(&img.as_bytes().to_vec(), width as usize, height as usize);
-        wfc.infer_rules(width as usize, height as usize);
+        let data = WfcGenerator::parse_data(&img, width as usize, height as usize);
+        let patterns = WfcGenerator::infer_patterns(&data, range, width as usize, height as usize);
+        println!("patterns: {:?}", patterns);
 
-        wfc
+        WfcGenerator { patterns, range }
     }
 
-    fn parse_data(&mut self, data: &Vec<u8>, width: usize, height: usize) {
-        let mut states: HashSet<u32> = HashSet::new();
+    fn parse_data(img: &image::DynamicImage, width: usize, height: usize) -> Vec<u32> {
+        let data: Vec<u8> = img.as_bytes().to_vec();
+        let mut out: Vec<u32> = vec![0; width * height];
 
-        self.sampled_data = Vec::new();
-        self.sampled_data.resize((width * height) as usize, 0);
-
-        self.bpp = match self.format {
+        let format = img.color();
+        let bpp = match format {
             ColorType::Rgb8 => 3,
             ColorType::Rgba8 => 4,
-            _ => panic!("unsupported format {:?}", self.format),
+            _ => panic!("unsupported format {:?}", format),
         };
 
         for y in 0..height {
             for x in 0..width {
-                let idx = ((y * width + x) * self.bpp) as usize;
+                let idx = ((y * width + x) * bpp) as usize;
                 let r = data[idx];
                 let g = data[idx + 1];
                 let b = data[idx + 2];
-                let v = match self.format {
+                let v = match format {
                     ColorType::Rgb8 => (r as u32) << 16 | (g as u32) << 8 | (b as u32),
                     ColorType::Rgba8 => {
                         let a = data[idx + 3];
                         (r as u32) << 24 | (g as u32) << 16 | (b as u32) << 8 | a as u32
                     }
                     _ => {
-                        panic!("unsupported format {:?}", self.format);
+                        panic!("unsupported format {:?}", format);
                     }
                 };
-                self.sampled_data[(y * width + x) as usize] = v;
-                states.insert(v);
+                out[(y * width + x) as usize] = v;
             }
         }
 
-        println!("found {} states", states.len());
-        for state in states {
-            println!("\tstate: 0x{:08x}", state);
-            self.states.push(state);
-        }
+        out
     }
 
-    fn infer_rules(&mut self, width: usize, height: usize) {
-        //                 state  direction states
-        //                     \     |     /
-        let mut rules: HashMap<u32, Vec<Vec<u32>>> = HashMap::with_capacity(self.states.len());
+    fn infer_patterns(
+        data: &Vec<u32>,
+        range: usize,
+        width: usize,
+        height: usize,
+    ) -> Vec<WeightedPattern> {
+        let mut patterns: HashMap<Pattern, usize> = HashMap::new();
 
-        // width (and height) of the directions grid
-        let dirs_width = self.range * 2 + 1;
-        self.states.iter().for_each(|&state| {
-            rules.insert(state, vec![Vec::new(); dirs_width.pow(2)]);
-        });
+        let pattern_size = range * 2 + 1;
 
         let permutations_fns: Vec<Box<dyn Fn(usize, usize) -> (usize, usize)>> = vec![
             // None
             Box::new(|x: usize, y: usize| (x, y)),
             // Y axis symmetry
-            Box::new(move |x: usize, y: usize| (dirs_width - 1 - x, y)),
+            Box::new(move |x: usize, y: usize| (pattern_size - 1 - x, y)),
             // X axis symmetry
-            Box::new(move |x: usize, y: usize| (x, dirs_width - 1 - y)),
+            Box::new(move |x: usize, y: usize| (x, pattern_size - 1 - y)),
             // XY symmetry
-            Box::new(move |x: usize, y: usize| (dirs_width - 1 - x, dirs_width - 1 - y)),
+            Box::new(move |x: usize, y: usize| (pattern_size - 1 - x, pattern_size - 1 - y)),
             // 90° clockwise
-            Box::new(move |x: usize, y: usize| (y, dirs_width - 1 - x)),
+            Box::new(move |x: usize, y: usize| (y, pattern_size - 1 - x)),
             // 90° counter clockwise
-            Box::new(move |x: usize, y: usize| (dirs_width - 1 - y, x)),
+            Box::new(move |x: usize, y: usize| (pattern_size - 1 - y, x)),
             // Y axis symmetry + 90° clockwise
-            Box::new(move |x: usize, y: usize| (dirs_width - 1 - y, dirs_width - 1 - x)),
+            Box::new(move |x: usize, y: usize| (pattern_size - 1 - y, pattern_size - 1 - x)),
             // Y axis symmetry + 90° clockwise
             Box::new(move |x: usize, y: usize| (y, x)),
         ];
 
-        for x in 0..width {
-            for y in 0..height {
-                let v = self.sampled_data[(y * width + x) as usize];
-                for subrange_x in 0..dirs_width {
-                    for subrange_y in 0..dirs_width {
-                        // do not use the cell were working on for the rules
-                        if subrange_x == self.range && subrange_y == self.range {
-                            continue;
-                        }
+        for x in range..width - range {
+            for y in range..height - range {
+                let mut pattern = vec![0; (pattern_size).pow(2)];
+                for subrange_x in 0..pattern_size {
+                    for subrange_y in 0..pattern_size {
+                        //for permutation_fn in permutations_fns.iter() {
+                        //let (subrange_x, subrange_y) = permutation_fn(subrange_x, subrange_y);
 
-                        for permutation_fn in permutations_fns.iter() {
-                            let (subrange_x, subrange_y) = permutation_fn(subrange_x, subrange_y);
+                        let i = subrange_x + subrange_y * pattern_size;
 
-                            if (x + subrange_x).checked_sub(self.range).is_none() {
-                                continue;
-                            }
-                            if (y + subrange_y).checked_sub(self.range).is_none() {
-                                continue;
-                            }
-                            if x + subrange_x - self.range >= width {
-                                continue;
-                            }
-                            if y + subrange_y - self.range >= height {
-                                continue;
-                            }
+                        pattern[i] = data[((x + subrange_x - range)
+                            + (y + subrange_y - range) * width)
+                            as usize];
 
-                            let v1 = self.sampled_data[((x + subrange_x - self.range)
-                                + (y + subrange_y - self.range) * width)
-                                as usize];
-
-                            rules.get_mut(&v).unwrap()[subrange_y * dirs_width + subrange_x]
-                                .push(v1);
-                        }
+                        //}
                     }
                 }
+                patterns
+                    .entry(Pattern::new(pattern.clone()))
+                    .and_modify(|entry| *entry += 1)
+                    .or_insert(1);
             }
         }
 
-        for (state, directions) in rules.iter() {
-            let directions = directions
-                .iter()
-                .map(|states| {
-                    let mut flattened_weights = HashMap::new();
-                    let mut weights = HashMap::new();
-                    let mut sum = 0;
+        println!("found {} patterns", patterns.len());
 
-                    states.iter().for_each(|state| {
-                        *flattened_weights.entry(*state).or_insert(0) += 1;
-                        sum += 1;
-                    });
-
-                    for (state, count) in flattened_weights.iter() {
-                        weights.insert(*state, *count as f32 / sum as f32);
-                    }
-                    weights
-                })
-                .collect();
-            self.rules.insert(*state, directions);
-        }
-    }
-
-    fn debug_rules(&self) {
-        let mut state_name = HashMap::new();
-        state_name.insert(0x00000000, "black");
-        state_name.insert(0x00ffffff, "white");
-        println!();
-        println!();
-        println!();
-        println!();
-        println!("rules:");
-        for (state, directions) in self.rules.iter() {
-            if let Some(name) = state_name.get(state) {
-                println!("state: {}", name);
-            } else {
-                println!("state: 0x{:08x}", state);
-            }
-            for (i, states) in directions.iter().enumerate() {
-                println!("  dir: {}", i);
-                for (state, weight) in states.iter() {
-                    if let Some(name) = state_name.get(state) {
-                        println!("    {} {:.2}", name, weight);
-                    } else {
-                        println!("    0x{:08x} {:.2}", state, weight);
-                    }
-                }
-            }
-        }
-    }
-
-    fn write_intermediary_image(&mut self) {
-        let buffer = &self
-            .data
+        patterns
             .iter()
-            .flat_map(|s| {
-                let weighted_bytes =
-                    s.iter()
-                        .map(|(v, w)| (v.to_be_bytes(), *w))
-                        .collect::<Vec<([u8; 4], f32)>>();
-                let mut mean_per_byte = vec![0; self.bpp];
-                for (i, (byte, w)) in weighted_bytes.iter().enumerate() {
-                    for j in 0..self.bpp {
-                        mean_per_byte[j] = (((mean_per_byte[j] as i32
-                            + (byte[(4 - self.bpp) + j] as i32 - mean_per_byte[j] as i32)
-                                / (i as i32 + 1))
-                            as u8) as f32
-                            * *w) as u8;
-                    }
-                }
-                mean_per_byte
-            })
-            .collect::<Vec<u8>>();
-        // ffmpeg -y -framerate 100 -i './out/img_%05d.bmp' -vf 'scale=1024:1024:flags=neighbor' video.mp4
-        image::save_buffer(
-            format!("out/img_{:05}.bmp", self.img_count).as_str(),
-            buffer,
-            self.width as u32,
-            self.height as u32,
-            self.format,
-        )
-        .unwrap();
-        self.img_count += 1;
-    }
-
-    // outputs Vec<(Vec<(states, weight)>, idx, dir)> (dir is from neighbor's pov)
-    fn get_neighbours(
-        &self,
-        x: usize,
-        y: usize,
-        range: usize,
-    ) -> Vec<(&Vec<(u32, f32)>, usize, usize)> {
-        let mut neighbours = Vec::new();
-
-        for dir in 0..(range * 2 + 1).pow(2) {
-            // do not return self
-            if dir == range * (range * 2 + 1) + range {
-                continue;
-            }
-            let xx = dir % (range * 2 + 1);
-            let yy = dir / (range * 2 + 1);
-            if (x + xx).checked_sub(range).is_some()
-                && (y + yy).checked_sub(range).is_some()
-                && x + xx <= self.width
-                && y + yy <= self.height
-            {
-                let i = ((x + xx - range) + (y + yy - range) * self.width) as usize;
-                let neighbor_states = &self.data[i];
-                neighbours.push((neighbor_states, i, (self.range * 2 + 1).pow(2) - dir - 1));
-            }
-        }
-
-        neighbours
-    }
-
-    fn get_weighted_possible_states(&self, x: usize, y: usize) -> Vec<(u32, f32)> {
-        let states = self.data[x + y * self.width].clone();
-        let mut weighted_states = Vec::new();
-        for (state, _) in states {
-            let mut weight = 1.;
-            // TODO we could invert those loops to avoid calling get_neighbours for every state
-            for (neighbor_states, i, dir) in self.get_neighbours(x, y, self.range) {
-                // we have an observed neighbor
-                if neighbor_states.len() == 1 {
-                    // is the state we are checking compatible with the observed neighbor ? if not, set weight to zero
-                    if let Some(&w) = self.rules[&neighbor_states[0].0][dir].get(&state) {
-                        if w > 0. {
-                            weight += w;
-                            // TODO should not happen ?
-                        } else {
-                            weight = 0.;
-                            break;
-                        }
-                    } else {
-                        weight = 0.;
-                        break;
-                    }
-                }
-            }
-            if weight > 0. {
-                weighted_states.push((state, weight));
-            }
-        }
-        let sum = weighted_states.iter().fold(0., |acc, (_, w)| acc + w);
-        // normalize
-        weighted_states
-            .iter()
-            .map(|(s, w)| (*s, *w / sum))
+            .map(|(p, &w)| WeightedPattern::new(p.clone(), w as f32))
             .collect()
-    }
-
-    fn gen(&mut self, width: usize, height: usize, seed: Option<u64>) -> Vec<u32> {
-        self.width = width;
-        self.height = height;
-
-        let seed = seed.unwrap_or_else(|| rand::thread_rng().gen());
-        let mut rng = rngs::StdRng::seed_from_u64(seed);
-        println!("seed {}", seed);
-        self.data.resize(
-            (width * height) as usize,
-            self.states
-                .iter()
-                .map(|&s| (s, 1. / self.states.len() as f32))
-                .collect(),
-        );
-        let mut propagation: VecDeque<usize> = VecDeque::new();
-        let mut observed = 0;
-        let mut time = std::time::Instant::now();
-
-        loop {
-            if time.elapsed().as_secs() >= 1 {
-                println!("{:.2}%", observed as f32 / (width * height) as f32 * 100.);
-                time = std::time::Instant::now();
-            }
-
-            if let Some(i) = propagation.pop_front() {
-                let x = i % width;
-                let y = i / width;
-                let states = self.data[x + y * width].clone();
-
-                if states.len() <= 1 {
-                    continue;
-                }
-
-                // get allowed states
-
-                let new_weighted_states = self.get_weighted_possible_states(x, y);
-                if new_weighted_states.len() == 1 {
-                    observed += 1;
-                }
-                if states != new_weighted_states {
-                    self.data[x + y * width] = new_weighted_states;
-                    // TODO push propagation even if the state number didn't change ?
-                    // so we can propagate the new weights
-                    for (_, index, _) in self.get_neighbours(x, y, self.range) {
-                        propagation.push_back(index);
-                    }
-                }
-            } else {
-                self.write_intermediary_image();
-                let tiles_with_entropy: Vec<(usize, f32)> = self
-                    .data
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, states)| {
-                        if states.len() > 1 {
-                            Some((
-                                i,
-                                -states.iter().fold(
-                                    0.,
-                                    // shannon's entropy (if not, all the tiles have the same entropy, especially on simple samples)
-                                    |acc, (_, w)| {
-                                        // log2(0) is -inf, and 0 * -inf is nan
-                                        // so we just cut to -inf
-                                        if *w > 0. {
-                                            acc + w * w.log2()
-                                        } else {
-                                            acc + -f32::INFINITY
-                                        }
-                                    },
-                                ),
-                            ))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                if tiles_with_entropy.is_empty() {
-                    return self
-                        .data
-                        .iter()
-                        .map(|s| if let Some(v) = s.get(0) { v.0 } else { 0 })
-                        .collect();
-                }
-                let (_, lowest_entropy) = tiles_with_entropy
-                    .iter()
-                    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                    .unwrap();
-                let i = tiles_with_entropy
-                    .iter()
-                    .filter(|(_, entropy)| *entropy == *lowest_entropy)
-                    .collect::<Vec<_>>()
-                    .choose(&mut rng)
-                    .unwrap()
-                    .0;
-
-                let x = i % width;
-                let y = i / width;
-                let weighted_states = self.get_weighted_possible_states(x, y);
-                if let Ok(state) = weighted_states.choose_weighted(&mut rng, |(_, weight)| *weight)
-                {
-                    self.data[i] = vec![(state.0, 1.)];
-                } else {
-                    self.data[i] = vec![];
-                }
-                observed += 1;
-                for (_, index, _) in self.get_neighbours(x, y, self.range) {
-                    propagation.push_back(index);
-                }
-            }
-        }
     }
 }
 
@@ -445,24 +153,24 @@ fn main() {
         panic!("failed to open {}", filename);
     };
 
-    let mut wfc = Wfc::from_image(1, &img);
-    wfc.debug_rules();
-    let (w, h) = (3 as u32, 3 as u32);
-    let start = std::time::Instant::now();
-    let data = wfc.gen(w as usize, h as usize, None);
-    //let data = wfc.gen(w as usize, h as usize, Some(17550241477713680911));
-    println!("generated in {:?}", start.elapsed());
+    let mut wfc = WfcGenerator::from_image(1, &img);
+    //wfc.debug_rules();
+    //let (w, h) = (3 as u32, 3 as u32);
+    //let start = std::time::Instant::now();
+    //let data = wfc.gen(w as usize, h as usize, None);
+    ////let data = wfc.gen(w as usize, h as usize, Some(17550241477713680911));
+    //println!("generated in {:?}", start.elapsed());
 
-    let buffer: Vec<u8> = data
-        .iter()
-        .flat_map(|v| {
-            v.to_be_bytes()
-                .iter()
-                .cloned()
-                .skip(4 - wfc.bpp)
-                .take(wfc.bpp)
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    image::save_buffer("out.bmp", &buffer, w, h, wfc.format).unwrap()
+    //let buffer: Vec<u8> = data
+    //.iter()
+    //.flat_map(|v| {
+    //v.to_be_bytes()
+    //.iter()
+    //.cloned()
+    //.skip(4 - wfc.bpp)
+    //.take(wfc.bpp)
+    //.collect::<Vec<_>>()
+    //})
+    //.collect();
+    //image::save_buffer("out.bmp", &buffer, w, h, wfc.format).unwrap()
 }
