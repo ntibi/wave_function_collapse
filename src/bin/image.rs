@@ -113,6 +113,25 @@ impl Wfc {
             rules.insert(state, vec![Vec::new(); dirs_width.pow(2)]);
         });
 
+        let permutations_fns: Vec<Box<dyn Fn(usize, usize) -> (usize, usize)>> = vec![
+            // None
+            Box::new(|x: usize, y: usize| (x, y)),
+            // Y axis symmetry
+            Box::new(move |x: usize, y: usize| (dirs_width - 1 - x, y)),
+            // X axis symmetry
+            Box::new(move |x: usize, y: usize| (x, dirs_width - 1 - y)),
+            // XY symmetry
+            Box::new(move |x: usize, y: usize| (dirs_width - 1 - x, dirs_width - 1 - y)),
+            // 90° clockwise
+            Box::new(move |x: usize, y: usize| (y, dirs_width - 1 - x)),
+            // 90° counter clockwise
+            Box::new(move |x: usize, y: usize| (dirs_width - 1 - y, x)),
+            // Y axis symmetry + 90° clockwise
+            Box::new(move |x: usize, y: usize| (dirs_width - 1 - y, dirs_width - 1 - x)),
+            // Y axis symmetry + 90° clockwise
+            Box::new(move |x: usize, y: usize| (y, x)),
+        ];
+
         for x in 0..width {
             for y in 0..height {
                 let v = self.sampled_data[(y * width + x) as usize];
@@ -122,24 +141,30 @@ impl Wfc {
                         if subrange_x == self.range && subrange_y == self.range {
                             continue;
                         }
-                        if (x + subrange_x).checked_sub(self.range).is_none() {
-                            continue;
-                        }
-                        if (y + subrange_y).checked_sub(self.range).is_none() {
-                            continue;
-                        }
-                        if x + subrange_x - self.range >= width {
-                            continue;
-                        }
-                        if y + subrange_y - self.range >= height {
-                            continue;
-                        }
 
-                        let v1 = self.sampled_data[((x + subrange_x - self.range)
-                            + (y + subrange_y - self.range) * width)
-                            as usize];
+                        for permutation_fn in permutations_fns.iter() {
+                            let (subrange_x, subrange_y) = permutation_fn(subrange_x, subrange_y);
 
-                        rules.get_mut(&v).unwrap()[subrange_y * dirs_width + subrange_x].push(v1);
+                            if (x + subrange_x).checked_sub(self.range).is_none() {
+                                continue;
+                            }
+                            if (y + subrange_y).checked_sub(self.range).is_none() {
+                                continue;
+                            }
+                            if x + subrange_x - self.range >= width {
+                                continue;
+                            }
+                            if y + subrange_y - self.range >= height {
+                                continue;
+                            }
+
+                            let v1 = self.sampled_data[((x + subrange_x - self.range)
+                                + (y + subrange_y - self.range) * width)
+                                as usize];
+
+                            rules.get_mut(&v).unwrap()[subrange_y * dirs_width + subrange_x]
+                                .push(v1);
+                        }
                     }
                 }
             }
