@@ -265,6 +265,7 @@ impl Wfc {
         let mut weighted_states = Vec::new();
         for (state, _) in states {
             let mut weight = 1.;
+            // TODO we could invert those loops to avoid calling get_neighbours for every state
             for (neighbor_states, _, dir) in self.get_neighbours(x, y, self.range) {
                 if neighbor_states.len() == 1 {
                     if let Some(w) = self.rules[&neighbor_states[0].0][dir].get(&state) {
