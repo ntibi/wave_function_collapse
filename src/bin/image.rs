@@ -437,7 +437,7 @@ fn main() {
         panic!("failed to open {}", filename);
     };
 
-    let mut wfc = WfcGenerator::from_image(1, &img);
+    let wfc = WfcGenerator::from_image(1, &img);
     let (w, h) = (16 as u32, 16 as u32);
     let start = std::time::Instant::now();
     let data = wfc.gen(w as usize, h as usize, None);
