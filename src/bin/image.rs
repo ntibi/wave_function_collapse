@@ -216,12 +216,6 @@ impl WfcGenerator {
         (patterns, rules)
     }
 
-    /// do these pattern match in the given direction
-    fn check_overlap(&self, pattern: &Pattern, dir: usize, other: &Pattern) -> bool {
-        let other_relative_dir = (self.range * 2 + 1).pow(2) - dir - 1;
-        pattern.pattern[dir] == other.pattern[other_relative_dir]
-    }
-
     fn get_pattern(&self, pattern_id: PatternId) -> &Pattern {
         &self.patterns[pattern_id]
     }
