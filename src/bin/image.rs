@@ -311,7 +311,13 @@ impl WfcGenerator {
         neighbours
     }
 
-    fn gen(&self, width: usize, height: usize, seed: Option<u64>) -> Vec<u32> {
+    fn gen(
+        &self,
+        width: usize,
+        height: usize,
+        seed: Option<u64>,
+        mut debug: impl FnMut(&WfcGenerator, &Vec<Vec<(PatternId, f32)>>) -> (),
+    ) -> Vec<u32> {
         let seed = seed.unwrap_or_else(|| rand::thread_rng().gen());
         println!("seed: {}", seed);
         let mut rng = rngs::StdRng::seed_from_u64(seed);
@@ -336,9 +342,11 @@ impl WfcGenerator {
                 let (x, y) = (to_observe % width, to_observe / width);
 
                 let new_patterns = self.get_weighted_possible_patterns(&data, x, y, width, height);
+                // TODO should we propagate only if the cell collapsed ?
+                // or on any patterns change ?
+
                 // if we had a change, we apply it and propagate
-                if new_patterns != *patterns {
-                    data[to_observe] = new_patterns;
+                if new_patterns.len() == 1 && new_patterns != *patterns {
                     for neighbour in self.get_neighbours(x, y, width, height).iter() {
                         // only push non collapsed neighbours
                         if data[*neighbour].len() > 1 {
@@ -346,7 +354,9 @@ impl WfcGenerator {
                         }
                     }
                 }
+                data[to_observe] = new_patterns;
             } else {
+                debug(self, &data);
                 let indexes_with_entropy: Vec<(usize, f32)> = data
                     .iter()
                     .enumerate()
@@ -429,17 +439,57 @@ fn main() {
         panic!("failed to open {}", filename);
     };
 
-    let wfc = WfcGenerator::from_image(1, &img);
-    let (w, h) = (16 as u32, 16 as u32);
-    let start = std::time::Instant::now();
-    let data = wfc.gen(w as usize, h as usize, None);
-    println!("generated in {:?}", start.elapsed());
-
     let bpp = match img.color() {
         ColorType::Rgb8 => 3,
         ColorType::Rgba8 => 4,
         _ => panic!("unsupported format {:?}", img.color()),
     };
+
+    let wfc = WfcGenerator::from_image(1, &img);
+    let (w, h) = (16 as u32, 16 as u32);
+    let mut img_count = 0;
+
+    let start = std::time::Instant::now();
+    let data = wfc.gen(
+        w as usize,
+        h as usize,
+        None,
+        |wfc: &WfcGenerator, data: &Vec<Vec<(PatternId, f32)>>| {
+            let buffer = data
+                .iter()
+                .flat_map(|s| {
+                    let weighted_bytes = s
+                        .iter()
+                        .map(|(v, w)| (wfc.get_pattern(*v).get_center().to_be_bytes(), *w))
+                        .collect::<Vec<([u8; 4], f32)>>();
+                    let mut mean_per_byte = vec![0; bpp];
+                    for (i, (byte, w)) in weighted_bytes.iter().enumerate() {
+                        for j in 0..bpp {
+                            mean_per_byte[j] = (((mean_per_byte[j] as i32
+                                + (byte[(4 - bpp) + j] as i32 - mean_per_byte[j] as i32)
+                                    / (i as i32 + 1))
+                                as u8) as f32
+                                * *w) as u8;
+                        }
+                    }
+                    mean_per_byte
+                })
+                .collect::<Vec<u8>>();
+            // ffmpeg -y -framerate 100 -i './out/img_%05d.bmp' -vf 'scale=1024:1024:flags=neighbor' video.mp4
+            image::save_buffer(
+                format!("out/img_{:05}.bmp", img_count).as_str(),
+                &buffer,
+                w,
+                h,
+                img.color(),
+            )
+            .unwrap();
+            img_count += 1;
+            ()
+        },
+    );
+    println!("generated in {:?}", start.elapsed());
+
     let buffer: Vec<u8> = data
         .iter()
         .flat_map(|v| {
