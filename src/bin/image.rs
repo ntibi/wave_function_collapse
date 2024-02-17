@@ -220,6 +220,7 @@ impl WfcGenerator {
         for (pattern_id, _) in data[y * width + x].iter() {
             let pattern = self.get_pattern(*pattern_id);
             if self.is_allowed(pattern.pattern.clone(), data, x, y, width, height) {
+                // TODO weighting
                 possible_patterns.push((*pattern_id, 1.));
             }
         }
