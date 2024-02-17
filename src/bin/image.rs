@@ -56,8 +56,6 @@ impl WfcGenerator {
         let data = WfcGenerator::parse_data(&img, width as usize, height as usize);
         let (patterns, rules) =
             WfcGenerator::infer_patterns(&data, range, width as usize, height as usize);
-        println!("patterns: {:?}", patterns);
-        println!("rules: {:?}", rules);
 
         WfcGenerator {
             range,
