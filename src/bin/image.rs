@@ -4,6 +4,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     env,
     num::Wrapping,
+    ops::{Index, IndexMut},
 };
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
@@ -21,25 +22,29 @@ impl Pattern {
     }
 }
 
-#[derive(Clone, Debug)]
-struct WeightedPattern {
-    pattern: Pattern,
-    weight: f32,
-}
-
-impl WeightedPattern {
-    fn new(pattern: Pattern, weight: f32) -> Self {
-        WeightedPattern { pattern, weight }
-    }
-}
-
 struct WfcGenerator {
     range: usize,
-    patterns: Vec<WeightedPattern>,
+    patterns: Vec<Pattern>,
+    // rules[pattern_id][dir][pattern_id] = weight
+    rules: Vec<Vec<Vec<f32>>>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 struct PatternId(usize);
+
+impl<T> Index<PatternId> for Vec<T> {
+    type Output = T;
+
+    fn index(&self, i: PatternId) -> &T {
+        &self[i.0]
+    }
+}
+
+impl<T> IndexMut<PatternId> for Vec<T> {
+    fn index_mut(&mut self, i: PatternId) -> &mut T {
+        &mut self[i.0]
+    }
+}
 
 impl WfcGenerator {
     /// Create a new WfcGenerator from an image
@@ -49,9 +54,16 @@ impl WfcGenerator {
         let (width, height) = img.dimensions();
 
         let data = WfcGenerator::parse_data(&img, width as usize, height as usize);
-        let patterns = WfcGenerator::infer_patterns(&data, range, width as usize, height as usize);
+        let (patterns, rules) =
+            WfcGenerator::infer_patterns(&data, range, width as usize, height as usize);
+        println!("patterns: {:?}", patterns);
+        println!("rules: {:?}", rules);
 
-        WfcGenerator { patterns, range }
+        WfcGenerator {
+            range,
+            patterns,
+            rules,
+        }
     }
 
     fn parse_data(img: &image::DynamicImage, width: usize, height: usize) -> Vec<u32> {
@@ -93,8 +105,11 @@ impl WfcGenerator {
         range: usize,
         width: usize,
         height: usize,
-    ) -> Vec<WeightedPattern> {
-        let mut patterns: HashMap<Pattern, usize> = HashMap::new();
+    ) -> (Vec<Pattern>, Vec<Vec<Vec<f32>>>) {
+        let mut patterns: HashMap<Pattern, PatternId> = HashMap::new();
+        let mut rules: Vec<Vec<Vec<PatternId>>> = Vec::new();
+        let mut pattern_id = PatternId(0);
+        let mut mapped: Vec<Option<PatternId>> = vec![None; data.len()];
 
         let pattern_size = range * 2 + 1;
 
@@ -134,20 +149,71 @@ impl WfcGenerator {
                         //}
                     }
                 }
-                patterns
-                    .entry(Pattern::new(pattern.clone()))
-                    .and_modify(|entry| *entry += 1)
-                    .or_insert(1);
+
+                let i = (x + y * width) as usize;
+
+                if let Some(pattern_id) = patterns.get_mut(&Pattern::new(pattern.clone())) {
+                    mapped[i] = Some(*pattern_id);
+                } else {
+                    patterns.insert(Pattern::new(pattern.clone()), pattern_id);
+                    mapped[i] = Some(pattern_id);
+                    pattern_id.0 += 1;
+                }
             }
         }
 
-        println!("found {} patterns", patterns.len());
+        let n_patterns = pattern_id.0;
+        println!("found {} patterns", n_patterns);
 
-        let total = patterns.values().sum::<usize>() as f32;
-        patterns
+        rules = vec![vec![Vec::new(); (range * 2 + 1).pow(2)]; n_patterns];
+
+        for x in range..width - range {
+            for y in range..height - range {
+                let pattern_id = mapped[(x + y * width) as usize].unwrap();
+                for xx in 0..(range * 2 + 1) {
+                    for yy in 0..(range * 2 + 1) {
+                        let ii = (x + xx - range) + (y + yy - range) * width;
+                        let x = Wrapping(range);
+                        let y = Wrapping(range);
+                        let xx = Wrapping(xx);
+                        let yy = Wrapping(yy);
+                        let size = Wrapping(range * 2 + 1);
+                        let half_pow = Wrapping((range * 2 + 1).pow(2) / 2);
+                        let dir = (xx - x + (yy - y) * (size) + (half_pow)).0;
+                        if let Some(mapped) = mapped[ii] {
+                            rules[pattern_id][dir].push(mapped);
+                        }
+                    }
+                }
+            }
+        }
+
+        let patterns = patterns
+            .into_iter()
+            .map(|(pattern, _)| pattern)
+            .collect::<Vec<_>>();
+
+        let rules = rules
             .iter()
-            .map(|(p, &w)| WeightedPattern::new(p.clone(), w as f32 / total))
-            .collect()
+            .map(|pid| {
+                pid.iter()
+                    .map(|dir| {
+                        let mut out = vec![0.0_f32; n_patterns];
+                        let mut total = 0.;
+                        for p in dir.iter() {
+                            out[p.0] += 1.;
+                            total += 1.;
+                        }
+                        for p in out.iter_mut() {
+                            *p /= total;
+                        }
+                        out
+                    })
+                    .collect()
+            })
+            .collect();
+
+        (patterns, rules)
     }
 
     /// do these pattern match in the given direction
@@ -156,20 +222,22 @@ impl WfcGenerator {
         pattern.pattern[dir] == other.pattern[other_relative_dir]
     }
 
-    fn get_pattern(&self, pattern_id: PatternId) -> &WeightedPattern {
-        &self.patterns[pattern_id.0]
+    fn get_pattern(&self, pattern_id: PatternId) -> &Pattern {
+        &self.patterns[pattern_id]
     }
 
-    fn is_allowed(
+    fn get_pattern_weight(
         &self,
-        pattern: Pattern,
+        pattern: PatternId,
         data: &Vec<Vec<(PatternId, f32)>>,
         x: usize,
         y: usize,
         width: usize,
         height: usize,
-    ) -> bool {
+    ) -> f32 {
         let neighbours = self.get_neighbours(x, y, width, height);
+        let mut weight = 0.;
+
         // for each neighbour of the input cell
         for neighbour in neighbours.iter() {
             let neighbour_patterns = &data[*neighbour];
@@ -177,34 +245,25 @@ impl WfcGenerator {
             if neighbour_patterns.len() != 1 {
                 continue;
             }
+            let neighbour_x = *neighbour % width;
+            let neighbour_y = *neighbour / width;
 
-            // TODO we could have a lookup table where we precompute
-            // all the possible patterns, for each pattern, for each direction
-            let neighbour_pattern = self.get_pattern(neighbour_patterns[0].0);
-            for neighbour_x in 0..(self.range * 2 + 1) {
-                for neighbour_y in 0..(self.range * 2 + 1) {
-                    let neighbour_index = neighbour_x + neighbour_y * (self.range * 2 + 1);
-                    // if the cell around the neighbour is not in the range of the input cell, we skip it
-                    // TODO we could do this just by modifying the double x,y loop, but im too lazy for now
-                    //   rn this is extremely inefficient
-                    if !neighbours.contains(&neighbour_index) {
-                        continue;
-                    }
-                    // dir relative to the input cell
-                    let x = Wrapping(x);
-                    let y = Wrapping(y);
-                    let neighbour_x = Wrapping(neighbour_x);
-                    let neighbour_y = Wrapping(neighbour_y);
-                    let size = Wrapping(self.range * 2 + 1);
-                    let half_pow = Wrapping((self.range * 2 + 1).pow(2) / 2);
-                    let dir = (neighbour_x - x + (neighbour_y - y) * (size) + (half_pow)).0;
-                    if !self.check_overlap(&pattern, dir, &neighbour_pattern.pattern) {
-                        return false;
-                    }
-                }
+            let x = Wrapping(x);
+            let y = Wrapping(y);
+            let neighbour_x = Wrapping(neighbour_x);
+            let neighbour_y = Wrapping(neighbour_y);
+            let size = Wrapping(self.range * 2 + 1);
+            let half_pow = Wrapping((self.range * 2 + 1).pow(2) / 2);
+            let dir = (neighbour_x - x + (neighbour_y - y) * (size) + (half_pow)).0;
+            let w = self.rules[pattern][dir][neighbour_patterns[0].0];
+            if w == 0. {
+                return 0.;
+            } else {
+                weight += w;
             }
         }
-        true
+
+        weight
     }
 
     fn get_weighted_possible_patterns(
@@ -216,16 +275,25 @@ impl WfcGenerator {
         height: usize,
     ) -> Vec<(PatternId, f32)> {
         // for each pattern id
-        let mut possible_patterns: Vec<(PatternId, f32)> = Vec::new();
+        let mut weights: Vec<f32> = vec![0.; self.patterns.len()];
         for (pattern_id, _) in data[y * width + x].iter() {
-            let pattern = self.get_pattern(*pattern_id);
-            if self.is_allowed(pattern.pattern.clone(), data, x, y, width, height) {
-                // TODO weighting
-                possible_patterns.push((*pattern_id, 1.));
-            }
+            let w = self.get_pattern_weight(*pattern_id, data, x, y, width, height);
+            weights[*pattern_id] += w;
         }
 
-        possible_patterns
+        let weights: Vec<(PatternId, f32)> = weights
+            .iter()
+            .enumerate()
+            .filter_map(|(i, w)| {
+                if *w > 0. {
+                    Some((PatternId(i), *w))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let sum = weights.iter().fold(0., |acc, (_, w)| acc + w);
+        weights.iter().map(|(i, w)| (*i, *w / sum)).collect()
     }
 
     fn get_neighbours(&self, x: usize, y: usize, width: usize, height: usize) -> Vec<usize> {
@@ -259,7 +327,8 @@ impl WfcGenerator {
         let weighted_pattern_ids: Vec<(PatternId, f32)> = (0..self.patterns.len())
             .map(|id| {
                 let pid = PatternId(id);
-                (pid, self.get_pattern(pid).weight)
+                // TODO use input weight distribution instead of even one ?
+                (pid, 1. / self.patterns.len() as f32)
             })
             .collect::<Vec<_>>();
         let mut data = vec![weighted_pattern_ids.clone(); width * height];
@@ -318,7 +387,7 @@ impl WfcGenerator {
                     return data
                         .iter()
                         .map(|s| match s.get(0) {
-                            Some(v) => self.get_pattern(v.0).pattern.get_center(),
+                            Some(v) => self.get_pattern(v.0).get_center(),
                             None => 0,
                         })
                         .collect::<Vec<u32>>();
