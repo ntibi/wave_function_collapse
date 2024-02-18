@@ -130,8 +130,9 @@ impl WfcGenerator {
             Box::new(move |x: usize, y: usize| (y, x)),
         ];
 
-        for x in range..width - range {
-            for y in range..height - range {
+        // find all unique patterns in input and map them to a pattern id
+        for y in range..height - range {
+            for x in range..width - range {
                 let mut pattern = vec![0; (pattern_size).pow(2)];
                 for subrange_x in 0..pattern_size {
                     for subrange_y in 0..pattern_size {
@@ -163,13 +164,22 @@ impl WfcGenerator {
         let n_patterns = pattern_id.0;
         println!("found {} patterns", n_patterns);
 
+        for (p, pid) in patterns.iter() {
+            print!("{:3}: ", pid.0);
+            for p in p.pattern.iter() {
+                print!("{:6x}  ", p);
+            }
+            println!();
+        }
+
         rules = vec![vec![Vec::new(); (range * 2 + 1).pow(2)]; n_patterns];
 
-        for x in range..width - range {
-            for y in range..height - range {
+        // infer adjacency rules and weights from the patterns
+        for y in range..height - range {
+            for x in range..width - range {
                 let pattern_id = mapped[(x + y * width) as usize].unwrap();
-                for xx in 0..(range * 2 + 1) {
-                    for yy in 0..(range * 2 + 1) {
+                for yy in 0..(range * 2 + 1) {
+                    for xx in 0..(range * 2 + 1) {
                         let ii = (x + xx - range) + (y + yy - range) * width;
                         let x = Wrapping(range);
                         let y = Wrapping(range);
@@ -186,12 +196,30 @@ impl WfcGenerator {
             }
         }
 
+        println!("mapped");
+        for y in 0..height {
+            for x in 0..width {
+                let i = (x + y * width) as usize;
+                if let Some(v) = mapped[i] {
+                    print!("{:3} ", v.0);
+                } else {
+                    print!("xxx ");
+                }
+            }
+            println!();
+        }
+        println!();
+        println!();
+        println!();
+        println!();
+
         let patterns = patterns
             .into_iter()
             .map(|(pattern, _)| pattern)
             .collect::<Vec<_>>();
 
-        let rules = rules
+        // normalize the weights
+        let rules: Vec<Vec<Vec<f32>>> = rules
             .iter()
             .map(|pid| {
                 pid.iter()
@@ -210,6 +238,23 @@ impl WfcGenerator {
                     .collect()
             })
             .collect();
+
+        println!("rules");
+        for pattern_id in 0..rules.len() {
+            println!("\tpattern {}", pattern_id);
+            for dir in 0..rules[pattern_id].len() {
+                println!("\t\tdir {}", dir);
+                print!("\t\t\t");
+                for p in 0..rules[pattern_id][dir].len() {
+                    let w = rules[pattern_id][dir][p];
+                    if w > 0. {
+                        print!("{:3}: {:3.3} ", p, w);
+                    }
+                }
+                println!();
+            }
+            println!();
+        }
 
         (patterns, rules)
     }
@@ -322,6 +367,10 @@ impl WfcGenerator {
         println!("seed: {}", seed);
         let mut rng = rngs::StdRng::seed_from_u64(seed);
 
+        for i in 0..self.patterns.len() {
+            println!("{:3}: {:?}", i, self.get_pattern(PatternId(i)).get_center());
+        }
+
         let weighted_pattern_ids: Vec<(PatternId, f32)> = (0..self.patterns.len())
             .map(|id| {
                 let pid = PatternId(id);
@@ -386,6 +435,36 @@ impl WfcGenerator {
 
                 // if we have no entropy, we are done
                 if indexes_with_entropy.is_empty() {
+                    println!();
+                    for i in 0..data.len() {
+                        if i % width == 0 {
+                            println!();
+                        }
+                        if data[i].len() == 1 {
+                            print!("{:3} ", data[i][0].0 .0);
+                        } else {
+                            print!("xxx ");
+                        }
+                    }
+                    println!();
+                    for i in 0..data.len() {
+                        if i % width == 0 {
+                            println!();
+                        }
+                        if data[i].len() == 1 {
+                            print!(
+                                "{}",
+                                if self.get_pattern(data[i][0].0).get_center() == 0 {
+                                    "#"
+                                } else {
+                                    " "
+                                }
+                            );
+                        } else {
+                            print!("x");
+                        }
+                    }
+                    println!();
                     return data
                         .iter()
                         .map(|s| match s.get(0) {
