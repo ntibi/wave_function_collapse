@@ -104,10 +104,16 @@ impl WfcGenerator {
         width: usize,
         height: usize,
     ) -> (Vec<Pattern>, Vec<Vec<Vec<f32>>>) {
-        let mut patterns: HashMap<Pattern, PatternId> = HashMap::new();
+        // key is the pattern (used to dedup patterns)
+        let mut patterns_map: HashMap<Pattern, PatternId> = HashMap::new();
+        // inferred neighboring rules
         let mut rules: Vec<Vec<Vec<PatternId>>> = Vec::new();
+        // pattern id creation counter
         let mut pattern_id = PatternId(0);
+        // input data mapped to pattern ids
         let mut mapped: Vec<Option<PatternId>> = vec![None; data.len()];
+        // list of pattern (indexed by pattern id)
+        let mut patterns: Vec<Pattern> = Vec::new();
 
         let pattern_size = range * 2 + 1;
 
@@ -151,26 +157,20 @@ impl WfcGenerator {
 
                 let i = (x + y * width) as usize;
 
-                if let Some(pattern_id) = patterns.get_mut(&Pattern::new(pattern.clone())) {
+                if let Some(pattern_id) = patterns_map.get_mut(&Pattern::new(pattern.clone())) {
                     mapped[i] = Some(*pattern_id);
                 } else {
-                    patterns.insert(Pattern::new(pattern.clone()), pattern_id);
+                    patterns_map.insert(Pattern::new(pattern.clone()), pattern_id);
                     mapped[i] = Some(pattern_id);
+                    patterns.push(Pattern::new(pattern));
                     pattern_id.0 += 1;
                 }
             }
         }
 
         let n_patterns = pattern_id.0;
-        println!("found {} patterns", n_patterns);
 
-        for (p, pid) in patterns.iter() {
-            print!("{:3}: ", pid.0);
-            for p in p.pattern.iter() {
-                print!("{:6x}  ", p);
-            }
-            println!();
-        }
+        println!("found {} patterns", n_patterns);
 
         rules = vec![vec![Vec::new(); (range * 2 + 1).pow(2)]; n_patterns];
 
@@ -196,28 +196,6 @@ impl WfcGenerator {
             }
         }
 
-        println!("mapped");
-        for y in 0..height {
-            for x in 0..width {
-                let i = (x + y * width) as usize;
-                if let Some(v) = mapped[i] {
-                    print!("{:3} ", v.0);
-                } else {
-                    print!("xxx ");
-                }
-            }
-            println!();
-        }
-        println!();
-        println!();
-        println!();
-        println!();
-
-        let patterns = patterns
-            .into_iter()
-            .map(|(pattern, _)| pattern)
-            .collect::<Vec<_>>();
-
         // normalize the weights
         let rules: Vec<Vec<Vec<f32>>> = rules
             .iter()
@@ -238,23 +216,6 @@ impl WfcGenerator {
                     .collect()
             })
             .collect();
-
-        println!("rules");
-        for pattern_id in 0..rules.len() {
-            println!("\tpattern {}", pattern_id);
-            for dir in 0..rules[pattern_id].len() {
-                println!("\t\tdir {}", dir);
-                print!("\t\t\t");
-                for p in 0..rules[pattern_id][dir].len() {
-                    let w = rules[pattern_id][dir][p];
-                    if w > 0. {
-                        print!("{:3}: {:3.3} ", p, w);
-                    }
-                }
-                println!();
-            }
-            println!();
-        }
 
         (patterns, rules)
     }
@@ -367,10 +328,6 @@ impl WfcGenerator {
         println!("seed: {}", seed);
         let mut rng = rngs::StdRng::seed_from_u64(seed);
 
-        for i in 0..self.patterns.len() {
-            println!("{:3}: {:?}", i, self.get_pattern(PatternId(i)).get_center());
-        }
-
         let weighted_pattern_ids: Vec<(PatternId, f32)> = (0..self.patterns.len())
             .map(|id| {
                 let pid = PatternId(id);
@@ -435,36 +392,6 @@ impl WfcGenerator {
 
                 // if we have no entropy, we are done
                 if indexes_with_entropy.is_empty() {
-                    println!();
-                    for i in 0..data.len() {
-                        if i % width == 0 {
-                            println!();
-                        }
-                        if data[i].len() == 1 {
-                            print!("{:3} ", data[i][0].0 .0);
-                        } else {
-                            print!("xxx ");
-                        }
-                    }
-                    println!();
-                    for i in 0..data.len() {
-                        if i % width == 0 {
-                            println!();
-                        }
-                        if data[i].len() == 1 {
-                            print!(
-                                "{}",
-                                if self.get_pattern(data[i][0].0).get_center() == 0 {
-                                    "#"
-                                } else {
-                                    " "
-                                }
-                            );
-                        } else {
-                            print!("x");
-                        }
-                    }
-                    println!();
                     return data
                         .iter()
                         .map(|s| match s.get(0) {
@@ -525,7 +452,7 @@ fn main() {
     };
 
     let wfc = WfcGenerator::from_image(1, &img);
-    let (w, h) = (16 as u32, 16 as u32);
+    let (w, h) = (128 as u32, 128 as u32);
     let mut img_count = 0;
 
     let start = std::time::Instant::now();
