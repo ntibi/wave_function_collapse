@@ -1,5 +1,7 @@
-# wave-function-collapse
+# wave function collapse
 visual wave function collapse algorithm implementation on a tile map using rust and bevy
+
+description [here](https://github.com/mxgmn/WaveFunctionCollapse)
 
 ## running the app
 `cargo run --release`
